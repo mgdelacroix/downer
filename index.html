@@ -1051,6 +1051,7 @@
         exportModalOpen: false,
         exportPayload: "",
         exportCopyStatus: "",
+        exportUrlCopyStatus: "",
         confirmDeleteId: null,
         replyComposerId: null,
         replyDraftError: "",
@@ -1204,6 +1205,27 @@
         return validatePayloadData(data);
       }
 
+      function canShareByUrl() {
+        return window.location.protocol === "http:" || window.location.protocol === "https:";
+      }
+
+      function createShareUrl(payload) {
+        if (!canShareByUrl()) return "";
+        const url = new URL(window.location.href);
+        url.search = "";
+        url.hash = "";
+        url.searchParams.set("payload", payload);
+        return url.toString();
+      }
+
+      function applyQueryPayloadPrefill() {
+        if (!canShareByUrl()) return;
+        const queryPayload = new URLSearchParams(window.location.search).get("payload");
+        if (!queryPayload) return;
+        state.sourceMode = "payload";
+        state.pendingPayload = queryPayload;
+      }
+
       function buildExportData() {
         return {
           version: 1,
@@ -1232,6 +1254,7 @@
       function openExportModal() {
         state.exportPayload = encodePayload(buildExportData());
         state.exportCopyStatus = "";
+        state.exportUrlCopyStatus = "";
         state.exportModalOpen = true;
         renderWorkspace();
         requestAnimationFrame(focusFirstDialogControl);
@@ -1240,6 +1263,7 @@
       function closeExportModal() {
         state.exportModalOpen = false;
         state.exportCopyStatus = "";
+        state.exportUrlCopyStatus = "";
         renderWorkspace();
         requestAnimationFrame(() => document.getElementById("export-button")?.focus());
       }
@@ -1288,6 +1312,25 @@
         } catch (error) {
           textarea.select();
           state.exportCopyStatus = "Payload selected; press Ctrl+C or Cmd+C to copy.";
+        }
+        renderWorkspace();
+      }
+
+      async function copyShareUrl() {
+        const input = document.getElementById("export-share-url");
+        const shareUrl = createShareUrl(state.exportPayload);
+        if (!input || !shareUrl) return;
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(shareUrl);
+          } else {
+            input.select();
+            document.execCommand("copy");
+          }
+          state.exportUrlCopyStatus = "Copied share URL.";
+        } catch (error) {
+          input.select();
+          state.exportUrlCopyStatus = "Share URL selected; press Ctrl+C or Cmd+C to copy.";
         }
         renderWorkspace();
       }
@@ -2221,6 +2264,7 @@
 
       function renderExportModal() {
         if (!state.exportModalOpen) return "";
+        const shareUrl = createShareUrl(state.exportPayload);
         return `
           <div class="modal-backdrop" id="export-backdrop">
             <section class="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title" aria-describedby="export-warning">
@@ -2235,8 +2279,19 @@
               <label class="label-row" for="export-payload"><span>Export payload</span></label>
               <textarea class="export-textarea" id="export-payload" readonly spellcheck="false">${escapeHtml(state.exportPayload)}</textarea>
               <div class="copy-status" aria-live="polite">${escapeHtml(state.exportCopyStatus)}</div>
+              ${shareUrl ? `
+                <div class="share-url-section">
+                  <p class="export-warning">Share URL contains the full Markdown and all review comments. It may be exposed through browser history, logs, or anyone with the link.</p>
+                  <label class="label-row" for="export-share-url"><span>Share URL</span></label>
+                  <input class="text-input" id="export-share-url" readonly value="${escapeHtml(shareUrl)}">
+                  <div class="copy-status" aria-live="polite">${escapeHtml(state.exportUrlCopyStatus)}</div>
+                </div>
+              ` : `
+                <p class="export-warning">Share URL export is available only when this file is deployed on an http or https page. Local file sessions should copy the raw payload above.</p>
+              `}
               <div class="composer-actions">
                 <button class="secondary" id="select-export" type="button">SELECT_ALL</button>
+                ${shareUrl ? `<button class="secondary" id="copy-url" type="button">COPY_URL</button>` : ""}
                 <button class="primary" id="copy-export" type="button">COPY_PAYLOAD</button>
               </div>
             </section>
@@ -2299,6 +2354,7 @@
         }
         document.getElementById("close-export")?.addEventListener("click", closeExportModal);
         document.getElementById("copy-export")?.addEventListener("click", copyExportPayload);
+        document.getElementById("copy-url")?.addEventListener("click", copyShareUrl);
         document.getElementById("select-export")?.addEventListener("click", () => document.getElementById("export-payload")?.select());
         document.getElementById("export-backdrop")?.addEventListener("click", (event) => {
           if (event.target.id === "export-backdrop") closeExportModal();
@@ -2337,11 +2393,14 @@
         resolveComment,
         reopenComment,
         isCommentStale,
+        canShareByUrl,
+        createShareUrl,
         forceBothSourcesForValidation(author, fileName, payload) {
           return validateStart({ author, file: { name: fileName }, payload });
         }
       };
 
+      applyQueryPayloadPrefill();
       applyTheme(state.theme);
       renderApp();
     </script>
