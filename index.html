@@ -308,6 +308,22 @@
         font-size: 13px;
       }
 
+      .checkbox-row {
+        align-items: center;
+        color: var(--text);
+        display: inline-flex;
+        gap: 10px;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .checkbox-row input {
+        accent-color: var(--accent);
+        height: 18px;
+        width: 18px;
+      }
+
       .payload-input {
         background: var(--inverse);
         color: var(--inverse-text);
@@ -1050,6 +1066,10 @@
         route: "onboarding",
         exportModalOpen: false,
         exportPayload: "",
+        exportMode: "full",
+        markdownHash: null,
+        includeComments: false,
+        pendingCommentsPayload: "",
         exportCopyStatus: "",
         exportUrlCopyStatus: "",
         confirmDeleteId: null,
@@ -1070,13 +1090,17 @@
           .replaceAll("'", "&#39;");
       }
 
-      function validateStart({ author, file, payload }) {
+      function validateStart({ author, sourceMode, file, payload, includeComments, commentsPayload }) {
         const errors = [];
         if (!author.trim()) errors.push("Enter a display name.");
-        if (file && payload.trim()) errors.push("Choose either a file or a payload, not both.");
-        if (!file && !payload.trim()) errors.push("Choose a Markdown file or paste a review payload.");
-        if (file && !/\.(md|markdown)$/i.test(file.name)) {
-          errors.push("Choose a .md or .markdown file.");
+        if (sourceMode === "file") {
+          if (!file) errors.push("Choose a Markdown file.");
+          if (file && !/\.(md|markdown)$/i.test(file.name)) errors.push("Choose a .md or .markdown file.");
+          if (includeComments && !commentsPayload.trim()) errors.push("Paste the comments-only review payload or uncheck Include comments.");
+        } else if (sourceMode === "payload") {
+          if (!payload.trim()) errors.push("Paste a full review payload.");
+        } else {
+          errors.push("Choose how to load the review.");
         }
         return errors;
       }
@@ -1087,6 +1111,14 @@
         let binary = "";
         bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
         return btoa(binary);
+      }
+
+      async function computeMarkdownHash(markdown) {
+        const bytes = new TextEncoder().encode(markdown);
+        const digest = await crypto.subtle.digest("SHA-256", bytes);
+        let binary = "";
+        new Uint8Array(digest).forEach((byte) => { binary += String.fromCharCode(byte); });
+        return { algorithm: "SHA-256", value: btoa(binary) };
       }
 
       function decodeBase64Unicode(payload) {
@@ -1174,27 +1206,53 @@
         };
       }
 
-      function validatePayloadData(data) {
+      function validatePayloadData(data, options = {}) {
         if (!data || typeof data !== "object" || Array.isArray(data)) {
           throw new Error("The review payload must be a JSON object.");
         }
         if (data.version !== 1) {
           throw new Error("Only review payload version 1 is supported.");
         }
-        if (typeof data.markdown !== "string") {
-          throw new Error("The review payload is missing Markdown content.");
+        const mode = data.mode === undefined ? "full" : data.mode;
+        if (mode !== "full" && mode !== "comments-only") {
+          throw new Error("The review payload mode is not supported.");
         }
         if (!Array.isArray(data.comments)) {
           throw new Error("The review payload comments must be an array.");
         }
+        if (mode === "full") {
+          if (typeof data.markdown !== "string") {
+            throw new Error("The review payload is missing Markdown content.");
+          }
+          return {
+            version: 1,
+            mode: "full",
+            markdown: data.markdown,
+            comments: data.comments.map((comment, index) => validateImportedComment(comment, data.markdown, index))
+          };
+        }
+        if (Object.prototype.hasOwnProperty.call(data, "markdown")) {
+          throw new Error("Comments-only payloads must not include Markdown content.");
+        }
+        if (!data.markdownHash || data.markdownHash.algorithm !== "SHA-256" || typeof data.markdownHash.value !== "string" || !data.markdownHash.value.trim()) {
+          throw new Error("The comments-only payload is missing a SHA-256 Markdown hash.");
+        }
+        if (!options.markdown || !options.markdownHash) {
+          throw new Error("Choose a Markdown file and include comments to import a comments-only payload.");
+        }
+        if (options.markdownHash.value !== data.markdownHash.value) {
+          throw new Error("The comments-only payload does not match the selected Markdown file.");
+        }
         return {
           version: 1,
-          markdown: data.markdown,
-          comments: data.comments.map((comment, index) => validateImportedComment(comment, data.markdown, index))
+          mode: "comments-only",
+          markdown: options.markdown,
+          markdownHash: data.markdownHash,
+          comments: data.comments.map((comment, index) => validateImportedComment(comment, options.markdown, index))
         };
       }
 
-      function decodePayload(payload) {
+      function decodePayload(payload, options = {}) {
         let data;
         try {
           data = JSON.parse(decodeBase64Unicode(payload));
@@ -1202,7 +1260,7 @@
           if (error.message.startsWith("Paste ") || error.message.includes("UTF-8")) throw error;
           throw new Error("The review payload must decode to valid JSON.");
         }
-        return validatePayloadData(data);
+        return validatePayloadData(data, options);
       }
 
       function canShareByUrl() {
@@ -1226,33 +1284,53 @@
         state.pendingPayload = queryPayload;
       }
 
+      function serializeComments() {
+        return state.comments.map((comment) => ({
+          id: comment.id,
+          start: comment.start,
+          end: comment.end,
+          highlightedText: comment.highlightedText,
+          timestamp: comment.timestamp,
+          author: comment.author,
+          body: comment.body,
+          replies: (comment.replies || []).map((reply) => ({
+            id: reply.id,
+            timestamp: reply.timestamp,
+            author: reply.author,
+            body: reply.body
+          })),
+          status: comment.status || "open",
+          resolvedAt: comment.status === "resolved" ? comment.resolvedAt : null,
+          resolvedBy: comment.status === "resolved" ? comment.resolvedBy : null
+        }));
+      }
+
       function buildExportData() {
+        if (state.exportMode === "comments-only") {
+          return {
+            version: 1,
+            mode: "comments-only",
+            markdownHash: state.markdownHash,
+            comments: serializeComments()
+          };
+        }
         return {
           version: 1,
+          mode: "full",
           markdown: state.markdown,
-          comments: state.comments.map((comment) => ({
-            id: comment.id,
-            start: comment.start,
-            end: comment.end,
-            highlightedText: comment.highlightedText,
-            timestamp: comment.timestamp,
-            author: comment.author,
-            body: comment.body,
-            replies: (comment.replies || []).map((reply) => ({
-              id: reply.id,
-              timestamp: reply.timestamp,
-              author: reply.author,
-              body: reply.body
-            })),
-            status: comment.status || "open",
-            resolvedAt: comment.status === "resolved" ? comment.resolvedAt : null,
-            resolvedBy: comment.status === "resolved" ? comment.resolvedBy : null
-          }))
+          comments: serializeComments()
         };
       }
 
-      function openExportModal() {
+      async function refreshExportPayload() {
+        if (state.exportMode === "comments-only" && !state.markdownHash) {
+          state.markdownHash = await computeMarkdownHash(state.markdown);
+        }
         state.exportPayload = encodePayload(buildExportData());
+      }
+
+      async function openExportModal() {
+        await refreshExportPayload();
         state.exportCopyStatus = "";
         state.exportUrlCopyStatus = "";
         state.exportModalOpen = true;
@@ -1345,6 +1423,7 @@
 
       function setSourceMode(mode) {
         state.sourceMode = mode;
+        state.errors = [];
         if (mode === "file") {
           state.pendingPayload = "";
           state.selectedFile = document.getElementById("file-input")?.files?.[0] || state.selectedFile;
@@ -1359,11 +1438,13 @@
       async function handleStart() {
         const authorInput = document.getElementById("author-input");
         const payloadInput = document.getElementById("payload-input");
+        const commentsPayloadInput = document.getElementById("comments-payload-input");
         const fileInput = document.getElementById("file-input");
         const author = authorInput.value;
         const payload = state.sourceMode === "payload" ? payloadInput.value : "";
+        const commentsPayload = state.sourceMode === "file" && state.includeComments ? commentsPayloadInput?.value || state.pendingCommentsPayload : "";
         const file = state.sourceMode === "file" ? fileInput.files[0] || state.selectedFile || null : null;
-        const errors = validateStart({ author, file, payload });
+        const errors = validateStart({ author, sourceMode: state.sourceMode, file, payload, includeComments: state.includeComments, commentsPayload });
         if (errors.length) {
           setErrors(errors);
           return;
@@ -1373,21 +1454,33 @@
 
         if (file) {
           try {
-            state.markdown = await file.text();
-            state.comments = [];
+            const markdown = await file.text();
+            const markdownHash = await computeMarkdownHash(markdown);
+            let comments = [];
+            if (state.includeComments) {
+              const data = decodePayload(commentsPayload, { markdown, markdownHash });
+              if (data.mode !== "comments-only") throw new Error("Paste a comments-only review payload for Include comments.");
+              comments = data.comments;
+            }
+            state.markdown = markdown;
+            state.markdownHash = markdownHash;
+            state.comments = comments;
             state.confirmDeleteId = null;
             state.tableScroll = {};
+            state.activeCommentId = comments[0]?.id || null;
             state.route = "workspace";
             renderApp();
           } catch (error) {
-            setErrors(["Unable to read the selected Markdown file."]);
+            setErrors([error.message || "Unable to read the selected Markdown file."]);
           }
           return;
         }
 
         try {
           const data = decodePayload(payload);
+          if (data.mode !== "full") throw new Error("Paste a full review payload in Full payload mode.");
           state.markdown = data.markdown;
+          state.markdownHash = await computeMarkdownHash(data.markdown);
           state.comments = data.comments;
           state.confirmDeleteId = null;
           state.tableScroll = {};
@@ -1437,11 +1530,19 @@
                         </div>
                       </div>
                     </div>
+                    <label class="checkbox-row" for="include-comments">
+                      <input id="include-comments" type="checkbox" ${state.includeComments ? "checked" : ""}>
+                      <span>Include comments</span>
+                    </label>
+                    <div class="source-zone" id="comments-payload-zone" ${state.includeComments ? "" : "hidden"}>
+                      <label class="label-row" for="comments-payload-input"><span>[comments_only_payload]</span></label>
+                      <textarea class="payload-input" id="comments-payload-input" placeholder="Paste comments-only export payload for this Markdown file..." spellcheck="false">${escapeHtml(state.pendingCommentsPayload)}</textarea>
+                    </div>
                     <div class="hint">Accepted extensions: .md, .markdown</div>
                   </div>
                   <div class="source-zone" id="payload-zone" ${state.sourceMode === "payload" ? "" : "hidden"}>
                     <label class="label-row" for="payload-input"><span>[payload_base64]</span></label>
-                    <textarea class="payload-input" id="payload-input" placeholder="Paste exported base64 review payload..." spellcheck="false">${escapeHtml(state.pendingPayload)}</textarea>
+                    <textarea class="payload-input" id="payload-input" placeholder="Paste full exported base64 review payload..." spellcheck="false">${escapeHtml(state.pendingPayload)}</textarea>
                   </div>
                 </div>
                 <ul class="error-list" id="errors" role="alert" aria-live="assertive" ${state.errors.length ? "" : "hidden"}>
@@ -1467,6 +1568,21 @@
         if (payloadInput) {
           payloadInput.addEventListener("input", (event) => {
             state.pendingPayload = event.target.value;
+          });
+        }
+        const includeComments = document.getElementById("include-comments");
+        if (includeComments) {
+          includeComments.addEventListener("change", (event) => {
+            state.includeComments = event.target.checked;
+            state.pendingCommentsPayload = document.getElementById("comments-payload-input")?.value || state.pendingCommentsPayload;
+            state.errors = [];
+            renderOnboarding();
+          });
+        }
+        const commentsPayloadInput = document.getElementById("comments-payload-input");
+        if (commentsPayloadInput) {
+          commentsPayloadInput.addEventListener("input", (event) => {
+            state.pendingCommentsPayload = event.target.value;
           });
         }
         const fileInput = document.getElementById("file-input");
@@ -2276,12 +2392,17 @@
                 <button class="secondary" id="close-export" type="button" aria-label="Close export dialog">CLOSE</button>
               </div>
               <p class="export-warning" id="export-warning">Export is the only persistence mechanism. This session is not saved automatically.</p>
+              <label class="checkbox-row" for="comments-only-export">
+                <input id="comments-only-export" type="checkbox" ${state.exportMode === "comments-only" ? "checked" : ""}>
+                <span>Comments only</span>
+              </label>
+              <p class="hint">${state.exportMode === "comments-only" ? "Comments-only export excludes Markdown and includes a SHA-256 hash of this document." : "Full export includes Markdown and comments."}</p>
               <label class="label-row" for="export-payload"><span>Export payload</span></label>
               <textarea class="export-textarea" id="export-payload" readonly spellcheck="false">${escapeHtml(state.exportPayload)}</textarea>
               <div class="copy-status" aria-live="polite">${escapeHtml(state.exportCopyStatus)}</div>
               ${shareUrl ? `
                 <div class="share-url-section">
-                  <p class="export-warning">Share URL contains the full Markdown and all review comments. It may be exposed through browser history, logs, or anyone with the link.</p>
+                  <p class="export-warning">Share URL contains the selected export payload. A full URL contains the full Markdown and comments; comments-only URLs include comment text, previews, authors, timestamps, offsets, and the Markdown hash. It may be exposed through browser history, logs, or anyone with the link.</p>
                   <label class="label-row" for="export-share-url"><span>Share URL</span></label>
                   <input class="text-input" id="export-share-url" readonly value="${escapeHtml(shareUrl)}">
                   <div class="copy-status" aria-live="polite">${escapeHtml(state.exportUrlCopyStatus)}</div>
@@ -2355,6 +2476,13 @@
         document.getElementById("close-export")?.addEventListener("click", closeExportModal);
         document.getElementById("copy-export")?.addEventListener("click", copyExportPayload);
         document.getElementById("copy-url")?.addEventListener("click", copyShareUrl);
+        document.getElementById("comments-only-export")?.addEventListener("change", async (event) => {
+          state.exportMode = event.target.checked ? "comments-only" : "full";
+          state.exportCopyStatus = "";
+          state.exportUrlCopyStatus = "";
+          await refreshExportPayload();
+          renderWorkspace();
+        });
         document.getElementById("select-export")?.addEventListener("click", () => document.getElementById("export-payload")?.select());
         document.getElementById("export-backdrop")?.addEventListener("click", (event) => {
           if (event.target.id === "export-backdrop") closeExportModal();
@@ -2379,6 +2507,7 @@
         decodePayload,
         encodePayload,
         buildExportData,
+        computeMarkdownHash,
         validatePayloadData,
         parseMarkdown,
         renderMarkdown,
@@ -2396,7 +2525,7 @@
         canShareByUrl,
         createShareUrl,
         forceBothSourcesForValidation(author, fileName, payload) {
-          return validateStart({ author, file: { name: fileName }, payload });
+          return validateStart({ author, sourceMode: payload ? "payload" : "file", file: payload ? null : { name: fileName }, payload, includeComments: false, commentsPayload: "" });
         }
       };
 
