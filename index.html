@@ -1,0 +1,2349 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Markdown Review Viewer</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f9f9ff;
+        --surface: #ffffff;
+        --surface-muted: #f1f3ff;
+        --surface-raised: #e9edff;
+        --text: #141b2b;
+        --muted: #554336;
+        --outline: #dbc2b0;
+        --outline-strong: #887364;
+        --accent: #8d4b00;
+        --accent-soft: #ffdcc3;
+        --accent-strong: #b15f00;
+        --highlight: #ffe69b;
+        --highlight-active: #ffc44d;
+        --highlight-resolved: #eee1c2;
+        --error: #ba1a1a;
+        --error-soft: #ffdad6;
+        --inverse: #293040;
+        --inverse-text: #edf0ff;
+        --topbar: rgba(255, 255, 255, 0.92);
+        --radius: 4px;
+        --shadow: 0 12px 30px rgba(20, 27, 43, 0.08);
+        --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      }
+
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #11151d;
+        --surface: #1b202b;
+        --surface-muted: #242b38;
+        --surface-raised: #30394a;
+        --text: #eef1f8;
+        --muted: #c9b8aa;
+        --outline: #4b4038;
+        --outline-strong: #9d806b;
+        --accent: #ffb36f;
+        --accent-soft: #5b341a;
+        --accent-strong: #ffc38c;
+        --highlight: #624a13;
+        --highlight-active: #8a650d;
+        --highlight-resolved: #4a3f2b;
+        --error: #ffb4ab;
+        --error-soft: #690005;
+        --inverse: #f1e7de;
+        --inverse-text: #2a1606;
+        --topbar: rgba(27, 32, 43, 0.92);
+        --shadow: 0 14px 36px rgba(0, 0, 0, 0.36);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(var(--outline) 1px, transparent 1px),
+          linear-gradient(90deg, var(--outline) 1px, transparent 1px),
+          var(--bg);
+        background-size: 48px 48px;
+        background-blend-mode: soft-light;
+        color: var(--text);
+        font-family: var(--font-ui);
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      button:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible,
+      a:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      #app {
+        min-height: 100vh;
+      }
+
+      .init-shell {
+        align-items: center;
+        display: flex;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 24px;
+      }
+
+      .init-panel {
+        background: var(--surface);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        max-width: 640px;
+        width: 100%;
+      }
+
+      .init-header {
+        align-items: center;
+        border-bottom: 1px solid var(--outline);
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
+        padding: 24px 32px;
+      }
+
+      h1 {
+        font-size: 30px;
+        font-weight: 650;
+        letter-spacing: 0;
+        line-height: 1.2;
+        margin: 0;
+      }
+
+      .lede {
+        color: var(--muted);
+        font-size: 14px;
+        margin: 6px 0 0;
+      }
+
+      .badge {
+        background: var(--surface-muted);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        color: var(--accent);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 700;
+        padding: 6px 10px;
+        white-space: nowrap;
+      }
+
+      .init-form {
+        display: grid;
+        gap: 24px;
+        padding: 32px;
+      }
+
+      .field {
+        display: grid;
+        gap: 8px;
+      }
+
+      .label-row {
+        align-items: center;
+        color: var(--muted);
+        display: flex;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 700;
+        justify-content: space-between;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      .text-input,
+      .payload-input {
+        background: var(--surface-muted);
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        color: var(--text);
+        min-height: 44px;
+        padding: 12px 14px;
+        width: 100%;
+      }
+
+      .text-input::placeholder,
+      .payload-input::placeholder {
+        color: color-mix(in srgb, var(--muted) 62%, transparent);
+      }
+
+      .divider {
+        align-items: center;
+        color: var(--muted);
+        display: grid;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        gap: 14px;
+        grid-template-columns: 1fr auto 1fr;
+      }
+
+      .divider::before,
+      .divider::after {
+        background: var(--outline);
+        content: "";
+        height: 1px;
+      }
+
+      .source-head {
+        align-items: center;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .required {
+        color: var(--accent);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .segmented {
+        background: var(--surface-muted);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        display: grid;
+        gap: 4px;
+        grid-template-columns: 1fr 1fr;
+        padding: 4px;
+      }
+
+      .segment {
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 700;
+        min-height: 36px;
+      }
+
+      .segment[aria-pressed="true"] {
+        background: var(--surface);
+        border-color: var(--outline);
+        color: var(--text);
+      }
+
+      .source-zone {
+        display: grid;
+        gap: 12px;
+      }
+
+      .source-zone[hidden] {
+        display: none;
+      }
+
+      .file-shell {
+        position: relative;
+      }
+
+      .file-input {
+        height: 100%;
+        inset: 0;
+        opacity: 0;
+        position: absolute;
+        width: 100%;
+      }
+
+      .file-drop {
+        align-items: center;
+        background: var(--surface-muted);
+        border: 1px dashed var(--outline-strong);
+        border-radius: var(--radius);
+        display: grid;
+        gap: 10px;
+        justify-items: center;
+        min-height: 156px;
+        padding: 28px;
+        text-align: center;
+      }
+
+      .file-mark {
+        align-items: center;
+        background: var(--surface-raised);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        color: var(--accent);
+        display: inline-flex;
+        font-family: var(--font-mono);
+        font-size: 18px;
+        height: 44px;
+        justify-content: center;
+        width: 44px;
+      }
+
+      .file-title {
+        font-weight: 650;
+      }
+
+      .file-meta,
+      .hint {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .payload-input {
+        background: var(--inverse);
+        color: var(--inverse-text);
+        font-family: var(--font-mono);
+        min-height: 156px;
+        resize: vertical;
+      }
+
+      .error-list {
+        background: var(--error-soft);
+        border: 1px solid color-mix(in srgb, var(--error) 38%, var(--error-soft));
+        border-radius: var(--radius);
+        color: var(--error);
+        display: grid;
+        font-size: 14px;
+        gap: 6px;
+        margin: 0;
+        padding: 12px 14px 12px 30px;
+      }
+
+      .error-list[hidden] {
+        display: none;
+      }
+
+      .actions {
+        align-items: center;
+        border-top: 1px solid var(--outline);
+        display: flex;
+        justify-content: flex-end;
+        padding-top: 24px;
+      }
+
+      .primary {
+        background: var(--inverse);
+        border: 1px solid var(--accent-soft);
+        border-radius: var(--radius);
+        color: var(--accent-soft);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        font-weight: 700;
+        min-height: 44px;
+        padding: 0 18px;
+      }
+
+      .primary:hover {
+        background: var(--accent-soft);
+        color: #2f1500;
+      }
+
+      .workspace {
+        min-height: 100vh;
+        padding-top: 48px;
+      }
+
+      .topbar {
+        align-items: center;
+        backdrop-filter: blur(10px);
+        background: var(--topbar);
+        border-bottom: 1px solid var(--outline);
+        display: flex;
+        gap: 14px;
+        height: 48px;
+        inset: 0 0 auto 0;
+        justify-content: space-between;
+        padding: 0 18px;
+        position: fixed;
+        z-index: 20;
+      }
+
+      .topbar-title {
+        align-items: baseline;
+        display: flex;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .topbar h1 {
+        font-size: 16px;
+        white-space: nowrap;
+      }
+
+      .topbar .lede {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .toolbar-actions {
+        display: flex;
+        flex-shrink: 0;
+        gap: 8px;
+      }
+
+      .secondary {
+        align-items: center;
+        background: var(--surface-muted);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        color: var(--text);
+        display: inline-flex;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 700;
+        justify-content: center;
+        min-height: 34px;
+        padding: 0 12px;
+        white-space: nowrap;
+      }
+
+      .secondary:hover {
+        border-color: var(--outline-strong);
+      }
+
+      .workspace-grid {
+        display: grid;
+        gap: 24px;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        margin: 0 auto;
+        max-width: 1160px;
+        padding: 32px 24px;
+      }
+
+      .document-shell,
+      .comments-rail {
+        background: var(--surface);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+      }
+
+      .document-shell {
+        justify-self: center;
+        max-width: 760px;
+        width: 100%;
+      }
+
+      .document {
+        line-height: 1.72;
+        padding: 42px;
+      }
+
+      .document a {
+        color: var(--accent);
+        font-weight: 650;
+        text-decoration-thickness: 0.08em;
+        text-underline-offset: 0.18em;
+      }
+
+      .document hr {
+        border: 0;
+        border-top: 1px solid var(--outline);
+      }
+
+      .table-frame {
+        margin: 1.25em 0;
+      }
+
+      .table-toolbar {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 6px;
+      }
+
+      .table-scroll-toggle {
+        min-height: 28px;
+        padding: 0 8px;
+      }
+
+      .table-viewport {
+        overflow-x: hidden;
+      }
+
+      .table-viewport[data-horizontal="true"] {
+        overflow-x: auto;
+        scrollbar-gutter: stable;
+      }
+
+      .document table {
+        border-collapse: collapse;
+        table-layout: fixed;
+        width: 100%;
+      }
+
+      .table-viewport[data-horizontal="true"] table {
+        min-width: 100%;
+        table-layout: auto;
+        width: max-content;
+      }
+
+      .table-viewport[data-horizontal="true"] th,
+      .table-viewport[data-horizontal="true"] td,
+      .table-viewport[data-horizontal="true"] [data-start][data-end] {
+        overflow-wrap: normal;
+        white-space: nowrap;
+      }
+
+      .document th,
+      .document td {
+        border: 1px solid var(--outline);
+        padding: 8px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .document th {
+        background: var(--surface-muted);
+        font-weight: 700;
+      }
+
+      .document tr:nth-child(even) td {
+        background: color-mix(in srgb, var(--surface-muted) 44%, transparent);
+      }
+
+      .document pre {
+        background: var(--surface-muted);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        color: var(--text);
+        font-family: var(--font-mono);
+        font-size: 14px;
+        overflow: auto;
+        padding: 16px;
+        white-space: pre-wrap;
+      }
+
+      .document pre code {
+        background: transparent;
+        border: 0;
+        padding: 0;
+      }
+
+      .document [data-start][data-end] {
+        overflow-wrap: anywhere;
+      }
+
+      .review-highlight {
+        background: var(--highlight);
+        border-bottom: 2px solid var(--accent);
+        border-radius: 2px;
+        color: inherit;
+        padding: 0 1px;
+      }
+
+      .review-highlight[data-active="true"] {
+        background: var(--highlight-active);
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+
+      .review-highlight[data-resolved="true"] {
+        background: var(--highlight-resolved);
+        border-bottom-style: dashed;
+        opacity: 0.92;
+      }
+
+      .selection-panel,
+      .composer-panel {
+        background: var(--surface-muted);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        margin: 0 0 18px;
+        padding: 14px;
+      }
+
+      .selection-panel {
+        box-shadow: var(--shadow);
+        margin: 0;
+        max-width: min(320px, calc(100vw - 24px));
+        position: fixed;
+        transform: translate(-50%, calc(-100% - 10px));
+        z-index: 40;
+      }
+
+      .selection-panel::after {
+        border: 8px solid transparent;
+        border-top-color: var(--outline);
+        bottom: -16px;
+        content: "";
+        left: 50%;
+        position: absolute;
+        transform: translateX(-50%);
+      }
+
+      .selection-panel .composer-actions {
+        margin-top: 0;
+      }
+
+      .selection-panel p,
+      .composer-panel p {
+        color: var(--muted);
+        font-size: 14px;
+        margin: 0 0 10px;
+      }
+
+      .composer-panel textarea {
+        background: var(--surface);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        color: var(--text);
+        min-height: 96px;
+        padding: 10px;
+        resize: vertical;
+        width: 100%;
+      }
+
+      .composer-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+        margin-top: 10px;
+      }
+
+      .inline-error {
+        color: var(--error);
+        font-size: 13px;
+        margin-top: 8px;
+      }
+
+      .document h1,
+      .document h2,
+      .document h3,
+      .document h4,
+      .document h5,
+      .document h6 {
+        line-height: 1.18;
+        margin: 1.45em 0 0.5em;
+      }
+
+      .document h1:first-child,
+      .document h2:first-child,
+      .document h3:first-child,
+      .document h4:first-child,
+      .document h5:first-child,
+      .document h6:first-child,
+      .document p:first-child,
+      .document pre:first-child,
+      .document blockquote:first-child {
+        margin-top: 0;
+      }
+
+      .document h1 { font-size: 34px; }
+      .document h2 { font-size: 26px; }
+      .document h3 { font-size: 21px; }
+      .document h4,
+      .document h5,
+      .document h6 { font-size: 18px; }
+
+      .document p,
+      .document ul,
+      .document ol,
+      .document blockquote,
+      .document pre,
+      .document table,
+      .document hr {
+        margin: 1em 0;
+      }
+
+      .document blockquote {
+        background: var(--surface-muted);
+        border-left: 4px solid var(--accent);
+        color: var(--muted);
+        padding: 10px 16px;
+      }
+
+      .document ul,
+      .document ol {
+        padding-left: 1.5rem;
+      }
+
+      .document li + li {
+        margin-top: 0.3rem;
+      }
+
+      .document code {
+        background: var(--surface-muted);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        font-family: var(--font-mono);
+        font-size: 0.92em;
+        padding: 0.1em 0.32em;
+      }
+
+      .comments-rail {
+        align-self: start;
+        max-height: calc(100vh - 80px);
+        overflow: auto;
+        padding: 18px;
+        position: sticky;
+        top: 72px;
+      }
+
+      .rail-header {
+        align-items: center;
+        border-bottom: 1px solid var(--outline);
+        display: flex;
+        justify-content: space-between;
+        margin: -2px 0 16px;
+        padding-bottom: 12px;
+      }
+
+      .rail-header h2 {
+        font-size: 15px;
+        margin: 0;
+      }
+
+      .empty-comments {
+        background: var(--surface-muted);
+        border: 1px dashed var(--outline-strong);
+        border-radius: var(--radius);
+        color: var(--muted);
+        font-size: 14px;
+        padding: 16px;
+      }
+
+      .comment-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .comment-thread {
+        display: grid;
+        gap: 8px;
+      }
+
+      .comment-card {
+        background: var(--surface-muted);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        color: var(--text);
+        display: grid;
+        gap: 8px;
+        padding: 12px;
+        text-align: left;
+        width: 100%;
+      }
+
+      .comment-card[data-active="true"] {
+        border-color: var(--accent);
+        box-shadow: inset 3px 0 0 var(--accent);
+      }
+
+      .comment-card[data-status="resolved"] {
+        background: color-mix(in srgb, var(--surface-muted) 58%, var(--surface));
+        color: color-mix(in srgb, var(--text) 78%, var(--muted));
+        opacity: 0.92;
+      }
+
+      .comment-card[data-status="resolved"] .comment-preview {
+        border-left-style: dashed;
+      }
+
+      .resolved-label {
+        color: var(--muted);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .resolved-meta {
+        color: var(--muted);
+        font-size: 12px;
+        margin: 0;
+      }
+
+      .comment-main {
+        background: transparent;
+        border: 0;
+        color: inherit;
+        display: block;
+        padding: 0;
+        text-align: left;
+        width: 100%;
+      }
+
+      .comment-actions {
+        display: flex;
+        gap: 6px;
+        justify-content: flex-end;
+      }
+
+      .comment-action-button {
+        font-size: 11px;
+        min-height: 26px;
+        padding: 0 8px;
+      }
+
+      .reply-list {
+        border-left: 2px solid var(--outline);
+        display: grid;
+        gap: 8px;
+        margin: 0 0 0 10px;
+        padding-left: 10px;
+      }
+
+      .reply-card,
+      .reply-composer {
+        background: color-mix(in srgb, var(--surface-muted) 70%, transparent);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        padding: 10px;
+      }
+
+      .reply-body {
+        margin: 0;
+        white-space: pre-wrap;
+      }
+
+      .reply-composer textarea {
+        background: var(--surface);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        color: var(--text);
+        min-height: 84px;
+        padding: 10px;
+        resize: vertical;
+        width: 100%;
+      }
+
+      .reply-composer .comment-actions {
+        margin-top: 10px;
+      }
+
+      .delete-confirm {
+        background: var(--error-soft);
+        border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+        border-radius: var(--radius);
+        color: var(--error);
+        display: grid;
+        gap: 10px;
+        padding: 10px;
+      }
+
+      .delete-confirm p {
+        font-size: 13px;
+        margin: 0;
+      }
+
+      .comment-meta {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+
+      .comment-preview {
+        border-left: 3px solid var(--accent);
+        color: var(--muted);
+        font-size: 13px;
+        margin: 0 0 8px;
+        padding-left: 8px;
+      }
+
+      .comment-body {
+        margin: 0;
+        white-space: pre-wrap;
+      }
+
+      .stale-warning {
+        background: var(--error-soft);
+        border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+        border-radius: var(--radius);
+        color: var(--error);
+        font-size: 12px;
+        font-weight: 700;
+        margin: 10px 0 0;
+        padding: 7px 8px;
+      }
+
+      .modal-backdrop {
+        align-items: center;
+        background: rgba(0, 0, 0, 0.58);
+        display: flex;
+        inset: 0;
+        justify-content: center;
+        padding: 20px;
+        position: fixed;
+        z-index: 60;
+      }
+
+      .export-dialog {
+        background: var(--surface);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        display: grid;
+        gap: 16px;
+        max-width: 720px;
+        padding: 22px;
+        width: min(720px, 100%);
+      }
+
+      .dialog-header {
+        align-items: start;
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
+      }
+
+      .dialog-header h2 {
+        font-size: 20px;
+        margin: 0;
+      }
+
+      .export-warning {
+        background: var(--accent-soft);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        color: var(--text);
+        font-size: 14px;
+        margin: 0;
+        padding: 12px;
+      }
+
+      .export-textarea {
+        background: var(--inverse);
+        border: 1px solid var(--outline-strong);
+        border-radius: var(--radius);
+        color: var(--inverse-text);
+        font-family: var(--font-mono);
+        min-height: 220px;
+        padding: 12px;
+        resize: vertical;
+        width: 100%;
+      }
+
+      .copy-status {
+        color: var(--muted);
+        font-size: 13px;
+        min-height: 1.4em;
+      }
+
+      .mobile-only {
+        display: none;
+      }
+
+      @media (max-width: 760px) {
+        .init-shell {
+          align-items: stretch;
+          padding: 16px;
+        }
+
+        .init-header {
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 20px;
+        }
+
+        .init-form {
+          padding: 20px;
+        }
+
+        h1 {
+          font-size: 24px;
+        }
+
+        .actions {
+          align-items: stretch;
+        }
+
+        .primary {
+          width: 100%;
+        }
+
+        .topbar {
+          gap: 8px;
+          padding: 0 10px;
+        }
+
+        .topbar h1 {
+          font-size: 14px;
+        }
+
+        .topbar .lede {
+          display: none;
+        }
+
+        .toolbar-actions {
+          gap: 5px;
+        }
+
+        .secondary {
+          font-size: 11px;
+          padding: 0 8px;
+        }
+
+        .workspace-grid {
+          display: block;
+          padding: 18px 12px 88px;
+        }
+
+        .document {
+          padding: 24px 18px;
+        }
+
+        .comments-rail {
+          border-radius: 14px 14px 0 0;
+          bottom: 0;
+          box-shadow: 0 -16px 34px rgba(0, 0, 0, 0.22);
+          display: none;
+          left: 0;
+          max-height: 60vh;
+          overflow: auto;
+          padding: 18px;
+          position: fixed;
+          right: 0;
+          top: auto;
+          z-index: 30;
+        }
+
+        .comments-rail[data-open="true"] {
+          display: block;
+        }
+
+        .mobile-only {
+          display: inline-flex;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      function getInitialTheme() {
+        return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+
+      const state = {
+        author: "",
+        markdown: "",
+        comments: [],
+        theme: getInitialTheme(),
+        activeCommentId: null,
+        selectionDraft: null,
+        commentsDrawerOpen: false,
+        sourceMode: "file",
+        selectedFile: null,
+        pendingPayload: "",
+        errors: [],
+        route: "onboarding",
+        exportModalOpen: false,
+        exportPayload: "",
+        exportCopyStatus: "",
+        confirmDeleteId: null,
+        replyComposerId: null,
+        replyDraftError: "",
+        didFocusInitialName: false,
+        tableScroll: {}
+      };
+
+      const app = document.getElementById("app");
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function validateStart({ author, file, payload }) {
+        const errors = [];
+        if (!author.trim()) errors.push("Enter a display name.");
+        if (file && payload.trim()) errors.push("Choose either a file or a payload, not both.");
+        if (!file && !payload.trim()) errors.push("Choose a Markdown file or paste a review payload.");
+        if (file && !/\.(md|markdown)$/i.test(file.name)) {
+          errors.push("Choose a .md or .markdown file.");
+        }
+        return errors;
+      }
+
+      function encodePayload(data) {
+        const json = JSON.stringify(data);
+        const bytes = new TextEncoder().encode(json);
+        let binary = "";
+        bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+        return btoa(binary);
+      }
+
+      function decodeBase64Unicode(payload) {
+        let binary;
+        try {
+          binary = atob(payload.trim());
+        } catch (error) {
+          throw new Error("Paste a valid base64 review payload.");
+        }
+        try {
+          const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+          return new TextDecoder().decode(bytes);
+        } catch (error) {
+          throw new Error("The review payload must decode to valid UTF-8 text.");
+        }
+      }
+
+      function validateImportedReply(reply, commentIndex, replyIndex) {
+        if (!reply || typeof reply !== "object" || Array.isArray(reply)) {
+          throw new Error(`Reply ${replyIndex + 1} on comment ${commentIndex + 1} must be a JSON object.`);
+        }
+        ["id", "timestamp", "author", "body"].forEach((field) => {
+          if (typeof reply[field] !== "string" || !reply[field].trim()) {
+            throw new Error(`Reply ${replyIndex + 1} on comment ${commentIndex + 1} is missing a valid ${field}.`);
+          }
+        });
+        if (Number.isNaN(new Date(reply.timestamp).getTime())) {
+          throw new Error(`Reply ${replyIndex + 1} on comment ${commentIndex + 1} has an invalid timestamp.`);
+        }
+        return {
+          id: reply.id,
+          timestamp: reply.timestamp,
+          author: reply.author,
+          body: reply.body
+        };
+      }
+
+      function normalizeResolution(comment, index) {
+        const status = comment.status === undefined ? "open" : comment.status;
+        if (status !== "open" && status !== "resolved") {
+          throw new Error(`Comment ${index + 1} has an invalid status.`);
+        }
+        if (status === "open") {
+          return { status: "open", resolvedAt: null, resolvedBy: null };
+        }
+        const resolvedAt = typeof comment.resolvedAt === "string" && !Number.isNaN(new Date(comment.resolvedAt).getTime()) ? comment.resolvedAt : new Date().toISOString();
+        const resolvedBy = typeof comment.resolvedBy === "string" && comment.resolvedBy.trim() ? comment.resolvedBy : "Unknown reviewer";
+        return { status: "resolved", resolvedAt, resolvedBy };
+      }
+
+      function validateImportedComment(comment, markdown, index) {
+        if (!comment || typeof comment !== "object" || Array.isArray(comment)) {
+          throw new Error(`Comment ${index + 1} must be a JSON object.`);
+        }
+        if (typeof comment.id !== "string" || !comment.id.trim()) {
+          throw new Error(`Comment ${index + 1} is missing a valid id.`);
+        }
+        if (!Number.isInteger(comment.start) || !Number.isInteger(comment.end) || comment.start < 0 || comment.end <= comment.start || comment.end > markdown.length) {
+          throw new Error(`Comment ${index + 1} has an invalid source range.`);
+        }
+        ["highlightedText", "timestamp", "author", "body"].forEach((field) => {
+          if (typeof comment[field] !== "string") {
+            throw new Error(`Comment ${index + 1} is missing a valid ${field}.`);
+          }
+        });
+        if (Number.isNaN(new Date(comment.timestamp).getTime())) {
+          throw new Error(`Comment ${index + 1} has an invalid timestamp.`);
+        }
+        if (comment.replies !== undefined && !Array.isArray(comment.replies)) {
+          throw new Error(`Comment ${index + 1} replies must be an array.`);
+        }
+        const resolution = normalizeResolution(comment, index);
+        return {
+          id: comment.id,
+          start: comment.start,
+          end: comment.end,
+          highlightedText: comment.highlightedText,
+          timestamp: comment.timestamp,
+          author: comment.author,
+          body: comment.body,
+          replies: (comment.replies || []).map((reply, replyIndex) => validateImportedReply(reply, index, replyIndex)),
+          status: resolution.status,
+          resolvedAt: resolution.resolvedAt,
+          resolvedBy: resolution.resolvedBy
+        };
+      }
+
+      function validatePayloadData(data) {
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
+          throw new Error("The review payload must be a JSON object.");
+        }
+        if (data.version !== 1) {
+          throw new Error("Only review payload version 1 is supported.");
+        }
+        if (typeof data.markdown !== "string") {
+          throw new Error("The review payload is missing Markdown content.");
+        }
+        if (!Array.isArray(data.comments)) {
+          throw new Error("The review payload comments must be an array.");
+        }
+        return {
+          version: 1,
+          markdown: data.markdown,
+          comments: data.comments.map((comment, index) => validateImportedComment(comment, data.markdown, index))
+        };
+      }
+
+      function decodePayload(payload) {
+        let data;
+        try {
+          data = JSON.parse(decodeBase64Unicode(payload));
+        } catch (error) {
+          if (error.message.startsWith("Paste ") || error.message.includes("UTF-8")) throw error;
+          throw new Error("The review payload must decode to valid JSON.");
+        }
+        return validatePayloadData(data);
+      }
+
+      function buildExportData() {
+        return {
+          version: 1,
+          markdown: state.markdown,
+          comments: state.comments.map((comment) => ({
+            id: comment.id,
+            start: comment.start,
+            end: comment.end,
+            highlightedText: comment.highlightedText,
+            timestamp: comment.timestamp,
+            author: comment.author,
+            body: comment.body,
+            replies: (comment.replies || []).map((reply) => ({
+              id: reply.id,
+              timestamp: reply.timestamp,
+              author: reply.author,
+              body: reply.body
+            })),
+            status: comment.status || "open",
+            resolvedAt: comment.status === "resolved" ? comment.resolvedAt : null,
+            resolvedBy: comment.status === "resolved" ? comment.resolvedBy : null
+          }))
+        };
+      }
+
+      function openExportModal() {
+        state.exportPayload = encodePayload(buildExportData());
+        state.exportCopyStatus = "";
+        state.exportModalOpen = true;
+        renderWorkspace();
+        requestAnimationFrame(focusFirstDialogControl);
+      }
+
+      function closeExportModal() {
+        state.exportModalOpen = false;
+        state.exportCopyStatus = "";
+        renderWorkspace();
+        requestAnimationFrame(() => document.getElementById("export-button")?.focus());
+      }
+
+      function focusFirstDialogControl() {
+        const dialog = document.querySelector('[role="dialog"]');
+        const focusable = dialog?.querySelectorAll('button, textarea, input, select, a[href], [tabindex]:not([tabindex="-1"])');
+        focusable?.[0]?.focus();
+      }
+
+      function trapDialogFocus(event) {
+        if (!state.exportModalOpen) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeExportModal();
+          return;
+        }
+        if (event.key !== "Tab") return;
+        const dialog = document.querySelector('[role="dialog"]');
+        if (!dialog) return;
+        const focusable = Array.from(dialog.querySelectorAll('button, textarea, input, select, a[href], [tabindex]:not([tabindex="-1"])'))
+          .filter((element) => !element.disabled && element.offsetParent !== null);
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+
+      async function copyExportPayload() {
+        const textarea = document.getElementById("export-payload");
+        if (!textarea) return;
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(state.exportPayload);
+          } else {
+            textarea.select();
+            document.execCommand("copy");
+          }
+          state.exportCopyStatus = "Copied export payload.";
+        } catch (error) {
+          textarea.select();
+          state.exportCopyStatus = "Payload selected; press Ctrl+C or Cmd+C to copy.";
+        }
+        renderWorkspace();
+      }
+
+      function setErrors(errors) {
+        state.errors = errors;
+        const list = document.getElementById("errors");
+        if (!list) return;
+        list.hidden = errors.length === 0;
+        list.innerHTML = errors.map((error) => `<li>${escapeHtml(error)}</li>`).join("");
+      }
+
+      function setSourceMode(mode) {
+        state.sourceMode = mode;
+        if (mode === "file") {
+          state.pendingPayload = "";
+          state.selectedFile = document.getElementById("file-input")?.files?.[0] || state.selectedFile;
+        } else {
+          state.selectedFile = null;
+          const fileInput = document.getElementById("file-input");
+          if (fileInput) fileInput.value = "";
+        }
+        renderOnboarding();
+      }
+
+      async function handleStart() {
+        const authorInput = document.getElementById("author-input");
+        const payloadInput = document.getElementById("payload-input");
+        const fileInput = document.getElementById("file-input");
+        const author = authorInput.value;
+        const payload = state.sourceMode === "payload" ? payloadInput.value : "";
+        const file = state.sourceMode === "file" ? fileInput.files[0] || state.selectedFile || null : null;
+        const errors = validateStart({ author, file, payload });
+        if (errors.length) {
+          setErrors(errors);
+          return;
+        }
+
+        state.author = author.trim();
+
+        if (file) {
+          try {
+            state.markdown = await file.text();
+            state.comments = [];
+            state.confirmDeleteId = null;
+            state.tableScroll = {};
+            state.route = "workspace";
+            renderApp();
+          } catch (error) {
+            setErrors(["Unable to read the selected Markdown file."]);
+          }
+          return;
+        }
+
+        try {
+          const data = decodePayload(payload);
+          state.markdown = data.markdown;
+          state.comments = data.comments;
+          state.confirmDeleteId = null;
+          state.tableScroll = {};
+          state.activeCommentId = data.comments[0]?.id || null;
+          state.route = "workspace";
+          renderApp();
+        } catch (error) {
+          setErrors([error.message]);
+        }
+      }
+
+      function renderOnboarding() {
+        const fileName = state.selectedFile ? state.selectedFile.name : "";
+        app.innerHTML = `
+          <main class="init-shell">
+            <section class="init-panel" aria-labelledby="init-title">
+              <header class="init-header">
+                <div>
+                  <h1 id="init-title">System Init</h1>
+                  <p class="lede">Configure session parameters.</p>
+                </div>
+                <div class="badge">MD_REVIEWER</div>
+              </header>
+              <form class="init-form" id="init-form" novalidate>
+                <div class="field">
+                  <label class="label-row" for="author-input"><span>[input_name]</span></label>
+                  <input class="text-input" id="author-input" name="author" type="text" autocomplete="name" placeholder="Enter your handle..." value="${escapeHtml(state.author)}">
+                </div>
+                <div class="divider">SOURCE_SELECTION</div>
+                <div class="source-zone">
+                  <div class="source-head">
+                    <div class="label-row">[src_file]</div>
+                    <div class="required">REQUIRED: 1</div>
+                  </div>
+                  <div class="segmented" role="group" aria-label="Input source">
+                    <button class="segment" id="tab-file" type="button" aria-pressed="${state.sourceMode === "file"}">UPLOAD</button>
+                    <button class="segment" id="tab-payload" type="button" aria-pressed="${state.sourceMode === "payload"}">PASTE_RAW</button>
+                  </div>
+                  <div class="source-zone" id="file-zone" ${state.sourceMode === "file" ? "" : "hidden"}>
+                    <div class="file-shell">
+                      <input class="file-input" id="file-input" type="file" accept=".md,.markdown,text/markdown,text/plain">
+                      <div class="file-drop" aria-hidden="true">
+                        <span class="file-mark">&gt;_</span>
+                        <div>
+                          <div class="file-title">${fileName ? `Loaded: ${escapeHtml(fileName)}` : "Drag and drop Markdown file"}</div>
+                          <div class="file-meta">${fileName ? "Ready for review" : "or click to browse"}</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="hint">Accepted extensions: .md, .markdown</div>
+                  </div>
+                  <div class="source-zone" id="payload-zone" ${state.sourceMode === "payload" ? "" : "hidden"}>
+                    <label class="label-row" for="payload-input"><span>[payload_base64]</span></label>
+                    <textarea class="payload-input" id="payload-input" placeholder="Paste exported base64 review payload..." spellcheck="false">${escapeHtml(state.pendingPayload)}</textarea>
+                  </div>
+                </div>
+                <ul class="error-list" id="errors" role="alert" aria-live="assertive" ${state.errors.length ? "" : "hidden"}>
+                  ${state.errors.map((error) => `<li>${escapeHtml(error)}</li>`).join("")}
+                </ul>
+                <div class="actions">
+                  <button class="primary" type="submit">&gt; EXECUTE_LOAD</button>
+                </div>
+              </form>
+            </section>
+          </main>
+        `;
+
+        document.getElementById("tab-file").addEventListener("click", () => setSourceMode("file"));
+        document.getElementById("tab-payload").addEventListener("click", () => {
+          state.pendingPayload = document.getElementById("payload-input")?.value || state.pendingPayload;
+          setSourceMode("payload");
+        });
+        document.getElementById("author-input").addEventListener("input", (event) => {
+          state.author = event.target.value;
+        });
+        const payloadInput = document.getElementById("payload-input");
+        if (payloadInput) {
+          payloadInput.addEventListener("input", (event) => {
+            state.pendingPayload = event.target.value;
+          });
+        }
+        const fileInput = document.getElementById("file-input");
+        if (fileInput) {
+          fileInput.addEventListener("change", (event) => {
+            state.selectedFile = event.target.files[0] || null;
+            renderOnboarding();
+          });
+        }
+        document.getElementById("init-form").addEventListener("submit", (event) => {
+          event.preventDefault();
+          handleStart();
+        });
+        if (!state.didFocusInitialName) {
+          state.didFocusInitialName = true;
+          requestAnimationFrame(() => document.getElementById("author-input")?.focus());
+        }
+      }
+
+      function applyTheme(theme) {
+        state.theme = theme;
+        document.documentElement.dataset.theme = theme;
+      }
+
+      function toggleTheme() {
+        applyTheme(state.theme === "dark" ? "light" : "dark");
+        renderWorkspace();
+      }
+
+      function isResolved(comment) {
+        return (comment.status || "open") === "resolved";
+      }
+
+      function shouldRenderCommentHighlight(comment) {
+        return !isResolved(comment) || comment.id === state.activeCommentId;
+      }
+
+      function getCommentIdsForRange(start, end) {
+        return state.comments
+          .filter((comment) => shouldRenderCommentHighlight(comment) && Number.isFinite(comment.start) && Number.isFinite(comment.end) && comment.start < end && comment.end > start)
+          .map((comment) => comment.id);
+      }
+
+      function appendTextSegment(parent, text, start) {
+        if (!text) return;
+        const boundaries = new Set([0, text.length]);
+        state.comments.forEach((comment) => {
+          if (!shouldRenderCommentHighlight(comment) || !Number.isFinite(comment.start) || !Number.isFinite(comment.end)) return;
+          const overlapStart = Math.max(start, comment.start);
+          const overlapEnd = Math.min(start + text.length, comment.end);
+          if (overlapStart < overlapEnd) {
+            boundaries.add(overlapStart - start);
+            boundaries.add(overlapEnd - start);
+          }
+        });
+        const points = Array.from(boundaries).sort((a, b) => a - b);
+        for (let index = 0; index < points.length - 1; index += 1) {
+          const localStart = points[index];
+          const localEnd = points[index + 1];
+          if (localStart === localEnd) continue;
+          const absoluteStart = start + localStart;
+          const absoluteEnd = start + localEnd;
+          const ids = getCommentIdsForRange(absoluteStart, absoluteEnd);
+          const node = document.createElement(ids.length ? "mark" : "span");
+          node.dataset.start = String(absoluteStart);
+          node.dataset.end = String(absoluteEnd);
+          if (ids.length) {
+            node.className = "review-highlight";
+            node.dataset.highlightIds = ids.join(" ");
+            node.dataset.active = ids.includes(state.activeCommentId) ? "true" : "false";
+            node.dataset.resolved = ids.some((id) => isResolved(state.comments.find((comment) => comment.id === id))) ? "true" : "false";
+            node.tabIndex = 0;
+          }
+          node.textContent = text.slice(localStart, localEnd);
+          parent.append(node);
+        }
+      }
+
+      function isSafeUrl(url) {
+        try {
+          const parsed = new URL(url, window.location.href);
+          return ["http:", "https:", "mailto:"].includes(parsed.protocol);
+        } catch (error) {
+          return false;
+        }
+      }
+
+      function findNextInlineToken(text, from) {
+        const candidates = [];
+        const code = text.indexOf("`", from);
+        if (code !== -1) candidates.push({ type: "code", index: code });
+        const bold = text.indexOf("**", from);
+        if (bold !== -1) candidates.push({ type: "bold", index: bold });
+        const italic = text.indexOf("*", from);
+        if (italic !== -1) candidates.push({ type: "italic", index: italic });
+        const link = text.indexOf("[", from);
+        if (link !== -1) candidates.push({ type: "link", index: link });
+        return candidates.sort((a, b) => a.index - b.index)[0] || null;
+      }
+
+      function appendInline(parent, text, sourceStart) {
+        let cursor = 0;
+        while (cursor < text.length) {
+          const token = findNextInlineToken(text, cursor);
+          if (!token) {
+            appendTextSegment(parent, text.slice(cursor), sourceStart + cursor);
+            break;
+          }
+          if (token.index > cursor) {
+            appendTextSegment(parent, text.slice(cursor, token.index), sourceStart + cursor);
+          }
+
+          if (token.type === "code") {
+            const close = text.indexOf("`", token.index + 1);
+            if (close === -1) {
+              appendTextSegment(parent, "`", sourceStart + token.index);
+              cursor = token.index + 1;
+            } else {
+              const code = document.createElement("code");
+              appendTextSegment(code, text.slice(token.index + 1, close), sourceStart + token.index + 1);
+              parent.append(code);
+              cursor = close + 1;
+            }
+            continue;
+          }
+
+          if (token.type === "bold") {
+            const close = text.indexOf("**", token.index + 2);
+            if (close === -1) {
+              appendTextSegment(parent, "**", sourceStart + token.index);
+              cursor = token.index + 2;
+            } else {
+              const strong = document.createElement("strong");
+              appendInline(strong, text.slice(token.index + 2, close), sourceStart + token.index + 2);
+              parent.append(strong);
+              cursor = close + 2;
+            }
+            continue;
+          }
+
+          if (token.type === "italic") {
+            if (text[token.index + 1] === "*") {
+              appendTextSegment(parent, "*", sourceStart + token.index);
+              cursor = token.index + 1;
+              continue;
+            }
+            const close = text.indexOf("*", token.index + 1);
+            if (close === -1) {
+              appendTextSegment(parent, "*", sourceStart + token.index);
+              cursor = token.index + 1;
+            } else {
+              const em = document.createElement("em");
+              appendInline(em, text.slice(token.index + 1, close), sourceStart + token.index + 1);
+              parent.append(em);
+              cursor = close + 1;
+            }
+            continue;
+          }
+
+          if (token.type === "link") {
+            const labelEnd = text.indexOf("]", token.index + 1);
+            const urlStart = labelEnd !== -1 && text[labelEnd + 1] === "(" ? labelEnd + 2 : -1;
+            const urlEnd = urlStart !== -1 ? text.indexOf(")", urlStart) : -1;
+            if (labelEnd === -1 || urlStart === -1 || urlEnd === -1) {
+              appendTextSegment(parent, "[", sourceStart + token.index);
+              cursor = token.index + 1;
+            } else {
+              const url = text.slice(urlStart, urlEnd).trim();
+              if (isSafeUrl(url)) {
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.target = "_blank";
+                anchor.rel = "noopener noreferrer";
+                appendInline(anchor, text.slice(token.index + 1, labelEnd), sourceStart + token.index + 1);
+                parent.append(anchor);
+              } else {
+                appendTextSegment(parent, text.slice(token.index, urlEnd + 1), sourceStart + token.index);
+              }
+              cursor = urlEnd + 1;
+            }
+          }
+        }
+      }
+
+      function splitTableCells(text, lineStart) {
+        let content = text;
+        let base = lineStart;
+        if (content.startsWith("|")) {
+          content = content.slice(1);
+          base += 1;
+        }
+        if (content.endsWith("|")) content = content.slice(0, -1);
+        const cells = [];
+        let cellStart = 0;
+        for (let index = 0; index <= content.length; index += 1) {
+          if (index === content.length || content[index] === "|") {
+            const raw = content.slice(cellStart, index);
+            const leading = raw.match(/^\s*/)[0].length;
+            const trailing = raw.match(/\s*$/)[0].length;
+            const trimmed = raw.slice(leading, raw.length - trailing);
+            cells.push({ text: trimmed, start: base + cellStart + leading });
+            cellStart = index + 1;
+          }
+        }
+        return cells;
+      }
+
+      function isTableSeparator(text) {
+        const cells = splitTableCells(text, 0);
+        return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.text.trim()));
+      }
+
+      function isTableRow(text) {
+        return text.includes("|") && splitTableCells(text, 0).length > 1;
+      }
+
+      function parseMarkdown(markdown) {
+        const blocks = [];
+        const lines = markdown.match(/.*(?:\n|$)/g) || [];
+        let offset = 0;
+        let i = 0;
+        function lineText(line) { return line.endsWith("\n") ? line.slice(0, -1) : line; }
+        while (i < lines.length) {
+          const rawLine = lines[i];
+          if (rawLine === "") break;
+          const text = lineText(rawLine);
+          const lineStart = offset;
+          if (/^\s*$/.test(text)) {
+            offset += rawLine.length;
+            i += 1;
+            continue;
+          }
+          if (/^```/.test(text)) {
+            const openLength = rawLine.length;
+            let content = "";
+            let contentStart = lineStart + openLength;
+            offset += rawLine.length;
+            i += 1;
+            while (i < lines.length && !/^```/.test(lineText(lines[i]))) {
+              content += lines[i];
+              offset += lines[i].length;
+              i += 1;
+            }
+            const end = offset;
+            if (i < lines.length) {
+              offset += lines[i].length;
+              i += 1;
+            }
+            blocks.push({ type: "code", start: contentStart, end, text: content.replace(/\n$/, "") });
+            continue;
+          }
+          const heading = /^(#{1,6})\s+(.+)$/.exec(text);
+          if (heading) {
+            blocks.push({ type: "heading", level: heading[1].length, start: lineStart + heading[1].length + 1, end: lineStart + text.length, text: heading[2] });
+            offset += rawLine.length;
+            i += 1;
+            continue;
+          }
+          if (/^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(text)) {
+            blocks.push({ type: "hr", start: lineStart, end: lineStart + text.length });
+            offset += rawLine.length;
+            i += 1;
+            continue;
+          }
+          if (isTableRow(text) && i + 1 < lines.length && isTableSeparator(lineText(lines[i + 1]))) {
+            const tableStart = lineStart;
+            const header = splitTableCells(text, lineStart);
+            offset += rawLine.length;
+            i += 1;
+            offset += lines[i].length;
+            i += 1;
+            const rows = [];
+            while (i < lines.length) {
+              const currentText = lineText(lines[i]);
+              if (!isTableRow(currentText) || /^\s*$/.test(currentText)) break;
+              rows.push(splitTableCells(currentText, offset));
+              offset += lines[i].length;
+              i += 1;
+            }
+            blocks.push({ type: "table", start: tableStart, end: offset, header, rows });
+            continue;
+          }
+          const quote = /^>\s?(.*)$/.exec(text);
+          if (quote) {
+            const parts = [];
+            while (i < lines.length) {
+              const currentText = lineText(lines[i]);
+              const match = /^>\s?(.*)$/.exec(currentText);
+              if (!match) break;
+              const prefixLength = currentText.indexOf(match[1]);
+              parts.push({ text: match[1], start: offset + prefixLength });
+              offset += lines[i].length;
+              i += 1;
+            }
+            blocks.push({ type: "blockquote", parts });
+            continue;
+          }
+          const list = /^(\s*)([-*+] |\d+\.\s+)(.*)$/.exec(text);
+          if (list) {
+            const ordered = /^\d/.test(list[2]);
+            const items = [];
+            while (i < lines.length) {
+              const currentText = lineText(lines[i]);
+              const match = /^(\s*)([-*+] |\d+\.\s+)(.*)$/.exec(currentText);
+              if (!match || /^\d/.test(match[2]) !== ordered) break;
+              const contentStart = offset + match[1].length + match[2].length;
+              items.push({ text: match[3], start: contentStart });
+              offset += lines[i].length;
+              i += 1;
+            }
+            blocks.push({ type: ordered ? "ol" : "ul", items });
+            continue;
+          }
+          const parts = [];
+          while (i < lines.length) {
+            const currentText = lineText(lines[i]);
+            if (/^\s*$/.test(currentText) || /^```/.test(currentText) || /^(#{1,6})\s+/.test(currentText) || /^>\s?/.test(currentText) || /^(\s*)([-*+] |\d+\.\s+)/.test(currentText) || /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(currentText)) break;
+            parts.push({ text: currentText, start: offset });
+            offset += lines[i].length;
+            i += 1;
+          }
+          blocks.push({ type: "paragraph", parts });
+        }
+        return blocks;
+      }
+
+      function appendParts(parent, parts) {
+        parts.forEach((part, index) => {
+          if (index > 0) appendTextSegment(parent, " ", part.start - 1 >= 0 ? part.start - 1 : part.start);
+          appendInline(parent, part.text, part.start);
+        });
+      }
+
+      function renderMarkdown(markdown, comments = []) {
+        const fragment = document.createDocumentFragment();
+        parseMarkdown(markdown).forEach((block) => {
+          if (block.type === "heading") {
+            const heading = document.createElement(`h${block.level}`);
+            appendInline(heading, block.text, block.start);
+            fragment.append(heading);
+          } else if (block.type === "paragraph") {
+            const p = document.createElement("p");
+            appendParts(p, block.parts);
+            fragment.append(p);
+          } else if (block.type === "code") {
+            const pre = document.createElement("pre");
+            const code = document.createElement("code");
+            appendTextSegment(code, block.text, block.start);
+            pre.append(code);
+            fragment.append(pre);
+          } else if (block.type === "blockquote") {
+            const quote = document.createElement("blockquote");
+            appendParts(quote, block.parts);
+            fragment.append(quote);
+          } else if (block.type === "ul" || block.type === "ol") {
+            const list = document.createElement(block.type);
+            block.items.forEach((item) => {
+              const li = document.createElement("li");
+              appendInline(li, item.text, item.start);
+              list.append(li);
+            });
+            fragment.append(list);
+          } else if (block.type === "table") {
+            const tableId = `table_${block.start}_${block.end}`;
+            const frame = document.createElement("div");
+            frame.className = "table-frame";
+            const toolbar = document.createElement("div");
+            toolbar.className = "table-toolbar";
+            const toggle = document.createElement("button");
+            toggle.className = "secondary table-scroll-toggle";
+            toggle.type = "button";
+            toggle.dataset.tableId = tableId;
+            toggle.setAttribute("aria-pressed", String(Boolean(state.tableScroll[tableId])));
+            toggle.setAttribute("aria-label", state.tableScroll[tableId] ? "Fit this table to available width" : "Use horizontal scroll for this table");
+            toggle.textContent = state.tableScroll[tableId] ? "FIT_TABLE" : "SCROLL_TABLE";
+            toolbar.append(toggle);
+            const viewport = document.createElement("div");
+            viewport.className = "table-viewport";
+            viewport.dataset.tableId = tableId;
+            viewport.dataset.horizontal = String(Boolean(state.tableScroll[tableId]));
+            const table = document.createElement("table");
+            const thead = document.createElement("thead");
+            const headerRow = document.createElement("tr");
+            block.header.forEach((cell) => {
+              const th = document.createElement("th");
+              appendInline(th, cell.text, cell.start);
+              headerRow.append(th);
+            });
+            thead.append(headerRow);
+            table.append(thead);
+            const tbody = document.createElement("tbody");
+            block.rows.forEach((row) => {
+              const tr = document.createElement("tr");
+              block.header.forEach((_, cellIndex) => {
+                const cell = row[cellIndex] || { text: "", start: 0 };
+                const td = document.createElement("td");
+                appendInline(td, cell.text, cell.start);
+                tr.append(td);
+              });
+              tbody.append(tr);
+            });
+            table.append(tbody);
+            viewport.append(table);
+            frame.append(toolbar, viewport);
+            fragment.append(frame);
+          } else if (block.type === "hr") {
+            fragment.append(document.createElement("hr"));
+          }
+        });
+        if (!fragment.childNodes.length) {
+          const p = document.createElement("p");
+          appendTextSegment(p, "Empty Markdown document.", 0);
+          fragment.append(p);
+        }
+        return fragment;
+      }
+
+      function formatTimestamp(value) {
+        const date = new Date(value);
+        return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+      }
+
+      function trimPreview(value, max = 96) {
+        const normalized = String(value).replace(/\s+/g, " ").trim();
+        return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
+      }
+
+      function renderSelectionUi() {
+        const draft = state.selectionDraft;
+        if (!draft) return "";
+        if (draft.composing) {
+          return `
+            <div class="composer-panel">
+              <p>Commenting on “${escapeHtml(trimPreview(draft.text, 80))}”</p>
+              <label class="label-row" for="comment-body"><span>Comment</span></label>
+              <textarea id="comment-body" spellcheck="true"></textarea>
+              ${draft.error ? `<div class="inline-error" role="alert">${escapeHtml(draft.error)}</div>` : ""}
+              <div class="composer-actions">
+                <button class="secondary" id="cancel-comment" type="button">Cancel</button>
+                <button class="primary" id="save-comment" type="button">Save</button>
+              </div>
+            </div>
+          `;
+        }
+        const top = Number.isFinite(draft.y) ? draft.y : 96;
+        const left = Number.isFinite(draft.x) ? draft.x : window.innerWidth / 2;
+        return `
+          <div class="selection-panel" aria-live="polite" style="top: ${Math.max(12, top)}px; left: ${Math.max(12, Math.min(left, window.innerWidth - 12))}px;">
+            <p>Selected “${escapeHtml(trimPreview(draft.text, 80))}”</p>
+            <div class="composer-actions">
+              <button class="secondary" id="clear-selection" type="button">Cancel</button>
+              <button class="primary" id="start-comment" type="button" aria-label="Add comment">+ Add comment</button>
+            </div>
+          </div>
+        `;
+      }
+
+      function isCommentStale(comment) {
+        return state.markdown.slice(comment.start, comment.end) !== comment.highlightedText;
+      }
+
+      function renderComments() {
+        if (!state.comments.length) {
+          return '<div class="empty-comments">No comments yet. Select document text to begin a review thread.</div>';
+        }
+        const sorted = [...state.comments].sort((a, b) => a.start - b.start || a.timestamp.localeCompare(b.timestamp));
+        return `<div class="comment-list">${sorted.map((comment) => {
+          const stale = isCommentStale(comment);
+          const isActive = comment.id === state.activeCommentId;
+          const resolved = isResolved(comment);
+          const isExpandedResolved = resolved && isActive;
+          const showDetails = !resolved || isExpandedResolved;
+          const isConfirmingDelete = state.confirmDeleteId === comment.id;
+          const isReplying = state.replyComposerId === comment.id && !resolved;
+          const replies = comment.replies || [];
+          const resolvedSummary = resolved ? `<p class="resolved-meta">Resolved by ${escapeHtml(comment.resolvedBy || "Unknown reviewer")} · ${escapeHtml(formatTimestamp(comment.resolvedAt))}</p>` : "";
+          return `
+          <div class="comment-thread" data-thread-id="${escapeHtml(comment.id)}">
+            <div class="comment-card" data-active="${isActive}" data-status="${resolved ? "resolved" : "open"}">
+              <button class="comment-main" type="button" data-comment-id="${escapeHtml(comment.id)}" data-active="${isActive}" ${isActive ? 'aria-current="true"' : ""} aria-expanded="${showDetails}">
+                ${resolved ? '<div class="resolved-label">Resolved thread</div>' : ""}
+                ${resolvedSummary}
+                ${showDetails ? `<div class="comment-meta">${escapeHtml(comment.author)} · ${escapeHtml(formatTimestamp(comment.timestamp))}</div>` : ""}
+                <blockquote class="comment-preview">${escapeHtml(trimPreview(comment.highlightedText))}</blockquote>
+                ${showDetails ? `<p class="comment-body">${escapeHtml(comment.body)}</p>` : ""}
+                ${stale && showDetails ? '<div class="stale-warning">Stored range may be stale</div>' : ""}
+              </button>
+              ${showDetails && replies.length ? `
+                <div class="reply-list" aria-label="Replies to comment">
+                  ${replies.map((reply) => `
+                    <div class="reply-card" data-reply-id="${escapeHtml(reply.id)}">
+                      <div class="comment-meta">${escapeHtml(reply.author)} · ${escapeHtml(formatTimestamp(reply.timestamp))}</div>
+                      <p class="reply-body">${escapeHtml(reply.body)}</p>
+                    </div>
+                  `).join("")}
+                </div>
+              ` : ""}
+              <div class="comment-actions">
+                ${resolved ? `<button class="secondary comment-action-button reopen-comment" type="button" data-reopen-id="${escapeHtml(comment.id)}">REOPEN</button>` : `<button class="secondary comment-action-button reply-comment" type="button" data-reply-id="${escapeHtml(comment.id)}" aria-label="Reply to comment thread">REPLY</button><button class="secondary comment-action-button resolve-comment" type="button" data-resolve-id="${escapeHtml(comment.id)}">RESOLVE</button>`}
+                <button class="secondary comment-action-button delete-comment" type="button" data-delete-id="${escapeHtml(comment.id)}" aria-label="Delete comment thread">DELETE</button>
+              </div>
+              ${isReplying ? `
+                <div class="reply-composer" role="group" aria-label="Reply composer">
+                  <label class="label-row" for="reply-body"><span>Reply</span></label>
+                  <textarea id="reply-body" spellcheck="true"></textarea>
+                  ${state.replyDraftError ? `<div class="inline-error" role="alert">${escapeHtml(state.replyDraftError)}</div>` : ""}
+                  <div class="comment-actions">
+                    <button class="secondary cancel-reply" type="button" data-cancel-reply-id="${escapeHtml(comment.id)}">Cancel reply</button>
+                    <button class="primary save-reply" type="button" data-save-reply-id="${escapeHtml(comment.id)}">Save reply</button>
+                  </div>
+                </div>
+              ` : ""}
+              ${isConfirmingDelete ? `
+                <div class="delete-confirm" role="group" aria-label="Confirm comment deletion">
+                  <p>Remove this comment thread and its replies from the current session and next export?</p>
+                  <div class="comment-actions">
+                    <button class="secondary cancel-delete" type="button" data-cancel-delete-id="${escapeHtml(comment.id)}">Cancel delete</button>
+                    <button class="primary confirm-delete" type="button" data-confirm-delete-id="${escapeHtml(comment.id)}">Confirm delete</button>
+                  </div>
+                </div>
+              ` : ""}
+            </div>
+          </div>
+        `;
+        }).join("")}</div>`;
+      }
+
+      function requestDeleteComment(id) {
+        state.activeCommentId = id;
+        state.confirmDeleteId = id;
+        state.replyComposerId = null;
+        state.replyDraftError = "";
+        renderWorkspace();
+        requestAnimationFrame(() => document.querySelector(`[data-confirm-delete-id="${CSS.escape(id)}"]`)?.focus());
+      }
+
+      function requestReply(commentId) {
+        const comment = state.comments.find((item) => item.id === commentId);
+        if (!comment || isResolved(comment)) return;
+        state.activeCommentId = commentId;
+        state.confirmDeleteId = null;
+        state.replyComposerId = commentId;
+        state.replyDraftError = "";
+        renderWorkspace();
+        requestAnimationFrame(() => document.getElementById("reply-body")?.focus());
+      }
+
+      function cancelReply(commentId) {
+        state.replyComposerId = null;
+        state.replyDraftError = "";
+        renderWorkspace();
+        requestAnimationFrame(() => document.querySelector(`[data-reply-id="${CSS.escape(commentId)}"]`)?.focus());
+      }
+
+      function addReply(commentId, body) {
+        const comment = state.comments.find((item) => item.id === commentId);
+        if (!comment || isResolved(comment)) return;
+        if (!body.trim()) {
+          state.replyComposerId = commentId;
+          state.replyDraftError = "Enter a reply before saving.";
+          renderWorkspace();
+          requestAnimationFrame(() => document.getElementById("reply-body")?.focus());
+          return;
+        }
+        comment.replies ||= [];
+        comment.replies.push({
+          id: `reply_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+          timestamp: new Date().toISOString(),
+          author: state.author,
+          body: body.trim()
+        });
+        state.replyComposerId = null;
+        state.replyDraftError = "";
+        renderWorkspace();
+        requestAnimationFrame(() => document.querySelector(`[data-reply-id="${CSS.escape(commentId)}"]`)?.focus());
+      }
+
+      function resolveComment(id) {
+        const comment = state.comments.find((item) => item.id === id);
+        if (!comment || isResolved(comment)) return;
+        comment.status = "resolved";
+        comment.resolvedAt = new Date().toISOString();
+        comment.resolvedBy = state.author;
+        state.activeCommentId = null;
+        if (state.replyComposerId === id) state.replyComposerId = null;
+        state.replyDraftError = "";
+        renderWorkspace();
+        requestAnimationFrame(() => document.querySelector(`[data-comment-id="${CSS.escape(id)}"]`)?.focus());
+      }
+
+      function reopenComment(id) {
+        const comment = state.comments.find((item) => item.id === id);
+        if (!comment || !isResolved(comment)) return;
+        comment.status = "open";
+        comment.resolvedAt = null;
+        comment.resolvedBy = null;
+        state.activeCommentId = id;
+        renderWorkspace();
+        requestAnimationFrame(() => document.querySelector(`[data-comment-id="${CSS.escape(id)}"]`)?.focus());
+      }
+
+      function cancelDeleteComment(id) {
+        state.confirmDeleteId = null;
+        renderWorkspace();
+        requestAnimationFrame(() => document.querySelector(`[data-delete-id="${CSS.escape(id)}"]`)?.focus());
+      }
+
+      function deleteComment(id) {
+        state.comments = state.comments.filter((comment) => comment.id !== id);
+        if (state.activeCommentId === id) state.activeCommentId = null;
+        if (state.confirmDeleteId === id) state.confirmDeleteId = null;
+        if (state.replyComposerId === id) state.replyComposerId = null;
+        state.replyDraftError = "";
+        renderWorkspace();
+        requestAnimationFrame(() => document.getElementById("document")?.focus({ preventScroll: true }));
+      }
+
+      function createComment(range, body) {
+        return {
+          id: `comment_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
+          start: range.start,
+          end: range.end,
+          highlightedText: state.markdown.slice(range.start, range.end),
+          timestamp: new Date().toISOString(),
+          author: state.author,
+          body: body.trim(),
+          replies: [],
+          status: "open",
+          resolvedAt: null,
+          resolvedBy: null
+        };
+      }
+
+      function sourceOffsetFromBoundary(container, offset) {
+        let node = container;
+        if (node.nodeType === Node.TEXT_NODE) {
+          const element = node.parentElement?.closest("[data-start][data-end]");
+          if (!element) return null;
+          return Number(element.dataset.start) + Math.min(offset, node.textContent.length);
+        }
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const children = Array.from(node.childNodes);
+          const candidate = children[Math.min(offset, children.length - 1)] || children[offset - 1] || node;
+          const textNode = candidate.nodeType === Node.TEXT_NODE ? candidate : document.createTreeWalker(candidate, NodeFilter.SHOW_TEXT).nextNode();
+          if (textNode) return sourceOffsetFromBoundary(textNode, 0);
+          const element = candidate.nodeType === Node.ELEMENT_NODE ? candidate.closest("[data-start][data-end]") : null;
+          if (element) return Number(element.dataset.start);
+        }
+        return null;
+      }
+
+      function captureSelection() {
+        const documentElement = document.getElementById("document");
+        const selection = window.getSelection();
+        if (!documentElement || !selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+        if (!documentElement.contains(selection.anchorNode) || !documentElement.contains(selection.focusNode)) return;
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        const start = sourceOffsetFromBoundary(range.startContainer, range.startOffset);
+        const end = sourceOffsetFromBoundary(range.endContainer, range.endOffset);
+        if (start === null || end === null) return;
+        const normalized = { start: Math.min(start, end), end: Math.max(start, end) };
+        const text = state.markdown.slice(normalized.start, normalized.end);
+        if (!text.trim()) return;
+        state.selectionDraft = {
+          ...normalized,
+          text,
+          composing: false,
+          error: "",
+          x: rect.left + rect.width / 2,
+          y: rect.top
+        };
+        const scrollX = window.scrollX;
+        const scrollY = window.scrollY;
+        renderWorkspace();
+        window.scrollTo(scrollX, scrollY);
+      }
+
+      function activateComment(id, scrollTarget = "highlight") {
+        if (state.activeCommentId !== id) {
+          state.confirmDeleteId = null;
+          state.replyComposerId = null;
+          state.replyDraftError = "";
+        }
+        state.activeCommentId = id;
+        if (window.matchMedia && window.matchMedia("(max-width: 760px)").matches) {
+          state.commentsDrawerOpen = true;
+        }
+        renderWorkspace();
+        requestAnimationFrame(() => {
+          const selector = scrollTarget === "card" ? `[data-comment-id="${CSS.escape(id)}"]` : `[data-highlight-ids~="${CSS.escape(id)}"]`;
+          const target = document.querySelector(selector);
+          target?.scrollIntoView({ block: "center", behavior: "smooth" });
+          target?.focus?.({ preventScroll: true });
+        });
+      }
+
+      function bindCommentInteractions() {
+        const documentElement = document.getElementById("document");
+        documentElement.addEventListener("mouseup", () => setTimeout(captureSelection, 0));
+        documentElement.addEventListener("keyup", () => setTimeout(captureSelection, 0));
+        documentElement.addEventListener("click", (event) => {
+          const highlight = event.target.closest("[data-highlight-ids]");
+          if (!highlight) return;
+          const id = highlight.dataset.highlightIds.split(" ")[0];
+          activateComment(id, "card");
+        });
+        documentElement.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          const highlight = event.target.closest("[data-highlight-ids]");
+          if (!highlight) return;
+          event.preventDefault();
+          const id = highlight.dataset.highlightIds.split(" ")[0];
+          activateComment(id, "card");
+        });
+        document.querySelectorAll("[data-comment-id]").forEach((card) => {
+          card.addEventListener("click", () => activateComment(card.dataset.commentId, "highlight"));
+        });
+        document.querySelectorAll("[data-reply-id]").forEach((button) => {
+          if (button.classList.contains("reply-comment")) {
+            button.addEventListener("click", () => requestReply(button.dataset.replyId));
+          }
+        });
+        document.querySelectorAll("[data-cancel-reply-id]").forEach((button) => {
+          button.addEventListener("click", () => cancelReply(button.dataset.cancelReplyId));
+        });
+        document.querySelectorAll("[data-save-reply-id]").forEach((button) => {
+          button.addEventListener("click", () => addReply(button.dataset.saveReplyId, document.getElementById("reply-body")?.value || ""));
+        });
+        document.getElementById("reply-body")?.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            addReply(state.replyComposerId, event.target.value);
+          }
+        });
+        document.querySelectorAll("[data-resolve-id]").forEach((button) => {
+          button.addEventListener("click", () => resolveComment(button.dataset.resolveId));
+        });
+        document.querySelectorAll("[data-reopen-id]").forEach((button) => {
+          button.addEventListener("click", () => reopenComment(button.dataset.reopenId));
+        });
+        document.querySelectorAll("[data-delete-id]").forEach((button) => {
+          button.addEventListener("click", () => requestDeleteComment(button.dataset.deleteId));
+        });
+        document.querySelectorAll("[data-cancel-delete-id]").forEach((button) => {
+          button.addEventListener("click", () => cancelDeleteComment(button.dataset.cancelDeleteId));
+        });
+        document.querySelectorAll("[data-confirm-delete-id]").forEach((button) => {
+          button.addEventListener("click", () => deleteComment(button.dataset.confirmDeleteId));
+        });
+        document.getElementById("start-comment")?.addEventListener("click", () => {
+          state.selectionDraft.composing = true;
+          state.selectionDraft.error = "";
+          renderWorkspace();
+          requestAnimationFrame(() => {
+            window.scrollTo(0, 0);
+            document.getElementById("comment-body")?.focus();
+          });
+        });
+        document.getElementById("clear-selection")?.addEventListener("click", () => {
+          state.selectionDraft = null;
+          window.getSelection()?.removeAllRanges();
+          renderWorkspace();
+        });
+        document.getElementById("cancel-comment")?.addEventListener("click", () => {
+          state.selectionDraft = null;
+          window.getSelection()?.removeAllRanges();
+          renderWorkspace();
+          requestAnimationFrame(() => document.getElementById("document")?.focus({ preventScroll: true }));
+        });
+        function saveCurrentComment() {
+          const body = document.getElementById("comment-body")?.value || "";
+          if (!body.trim()) {
+            state.selectionDraft.error = "Enter a comment before saving.";
+            renderWorkspace();
+            requestAnimationFrame(() => document.getElementById("comment-body")?.focus());
+            return;
+          }
+          const comment = createComment(state.selectionDraft, body);
+          state.comments.push(comment);
+          state.activeCommentId = comment.id;
+          state.selectionDraft = null;
+          window.getSelection()?.removeAllRanges();
+          renderWorkspace();
+          requestAnimationFrame(() => document.querySelector(`[data-comment-id="${CSS.escape(comment.id)}"]`)?.focus());
+        }
+        document.getElementById("save-comment")?.addEventListener("click", saveCurrentComment);
+        document.getElementById("comment-body")?.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            saveCurrentComment();
+          }
+        });
+      }
+
+      function renderExportModal() {
+        if (!state.exportModalOpen) return "";
+        return `
+          <div class="modal-backdrop" id="export-backdrop">
+            <section class="export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title" aria-describedby="export-warning">
+              <div class="dialog-header">
+                <div>
+                  <h2 id="export-title">Export review payload</h2>
+                  <p class="lede">Copy this base64 text to preserve or share the review.</p>
+                </div>
+                <button class="secondary" id="close-export" type="button" aria-label="Close export dialog">CLOSE</button>
+              </div>
+              <p class="export-warning" id="export-warning">Export is the only persistence mechanism. This session is not saved automatically.</p>
+              <label class="label-row" for="export-payload"><span>Export payload</span></label>
+              <textarea class="export-textarea" id="export-payload" readonly spellcheck="false">${escapeHtml(state.exportPayload)}</textarea>
+              <div class="copy-status" aria-live="polite">${escapeHtml(state.exportCopyStatus)}</div>
+              <div class="composer-actions">
+                <button class="secondary" id="select-export" type="button">SELECT_ALL</button>
+                <button class="primary" id="copy-export" type="button">COPY_PAYLOAD</button>
+              </div>
+            </section>
+          </div>
+        `;
+      }
+
+      function renderWorkspace() {
+        applyTheme(state.theme);
+        const commentCount = state.comments.length;
+        app.innerHTML = `
+          <div class="workspace">
+            <header class="topbar">
+              <div class="topbar-title">
+                <h1 id="workspace-title">Review Workspace</h1>
+                <p class="lede">Loaded for ${escapeHtml(state.author)}.</p>
+              </div>
+              <div class="toolbar-actions" aria-label="Workspace actions">
+                <button class="secondary" id="theme-toggle" type="button" aria-label="Switch to ${state.theme === "dark" ? "light" : "dark"} theme" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? "LIGHT" : "DARK"}</button>
+                <button class="secondary mobile-only" id="comments-toggle" type="button" aria-expanded="${state.commentsDrawerOpen}" aria-controls="comments-rail">COMMENTS</button>
+                <button class="secondary" id="export-button" type="button">EXPORT</button>
+              </div>
+            </header>
+            <main class="workspace-grid" aria-labelledby="workspace-title">
+              <section class="document-shell" aria-label="Markdown document panel">
+                <div class="document" id="document-wrap">
+                  ${renderSelectionUi()}
+                  <article id="document" tabindex="-1" aria-label="Rendered Markdown Document"></article>
+                </div>
+              </section>
+              <aside class="comments-rail" id="comments-rail" aria-label="Review comments" data-open="${state.commentsDrawerOpen}">
+                <div class="rail-header">
+                  <h2>Comments</h2>
+                  <span class="badge">${commentCount}</span>
+                </div>
+                ${renderComments()}
+              </aside>
+            </main>
+            ${renderExportModal()}
+          </div>
+        `;
+
+        document.getElementById("document").append(renderMarkdown(state.markdown, state.comments));
+        document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+        document.querySelectorAll(".table-scroll-toggle").forEach((button) => {
+          button.addEventListener("click", () => {
+            const tableId = button.dataset.tableId;
+            state.tableScroll[tableId] = !state.tableScroll[tableId];
+            renderWorkspace();
+          });
+        });
+        document.getElementById("export-button").addEventListener("click", openExportModal);
+        bindCommentInteractions();
+        const commentsToggle = document.getElementById("comments-toggle");
+        if (commentsToggle) {
+          commentsToggle.addEventListener("click", () => {
+            state.commentsDrawerOpen = !state.commentsDrawerOpen;
+            renderWorkspace();
+          });
+        }
+        document.getElementById("close-export")?.addEventListener("click", closeExportModal);
+        document.getElementById("copy-export")?.addEventListener("click", copyExportPayload);
+        document.getElementById("select-export")?.addEventListener("click", () => document.getElementById("export-payload")?.select());
+        document.getElementById("export-backdrop")?.addEventListener("click", (event) => {
+          if (event.target.id === "export-backdrop") closeExportModal();
+        });
+        document.removeEventListener("keydown", trapDialogFocus);
+        if (state.exportModalOpen) {
+          document.addEventListener("keydown", trapDialogFocus);
+        }
+      }
+
+      function renderApp() {
+        if (state.route === "workspace") {
+          renderWorkspace();
+        } else {
+          renderOnboarding();
+        }
+      }
+
+      window.__markdownReviewerTest = {
+        state,
+        validateStart,
+        decodePayload,
+        encodePayload,
+        buildExportData,
+        validatePayloadData,
+        parseMarkdown,
+        renderMarkdown,
+        applyTheme,
+        activateComment,
+        deleteComment,
+        requestDeleteComment,
+        cancelDeleteComment,
+        requestReply,
+        cancelReply,
+        addReply,
+        resolveComment,
+        reopenComment,
+        isCommentStale,
+        forceBothSourcesForValidation(author, fileName, payload) {
+          return validateStart({ author, file: { name: fileName }, payload });
+        }
+      };
+
+      applyTheme(state.theme);
+      renderApp();
+    </script>
+  </body>
+</html>
