@@ -911,7 +911,9 @@
         box-shadow: var(--shadow);
         display: grid;
         gap: 16px;
+        max-height: calc(100vh - 40px);
         max-width: 720px;
+        overflow: auto;
         padding: 22px;
         width: min(720px, 100%);
       }
@@ -1067,6 +1069,7 @@
         exportModalOpen: false,
         exportPayload: "",
         exportMode: "full",
+        exportCompressed: false,
         markdownHash: null,
         includeComments: false,
         pendingCommentsPayload: "",
@@ -1111,6 +1114,50 @@
         let binary = "";
         bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
         return btoa(binary);
+      }
+
+      function isCompressionSupported() {
+        return typeof CompressionStream === "function" && typeof DecompressionStream === "function";
+      }
+
+      function base64UrlEncode(bytes) {
+        let binary = "";
+        bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+        return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+      }
+
+      function base64UrlDecode(value) {
+        if (!/^[A-Za-z0-9_-]*$/.test(value)) {
+          throw new Error("Paste a valid compressed review payload.");
+        }
+        const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - (value.length % 4)) % 4);
+        let binary;
+        try {
+          binary = atob(padded);
+        } catch (error) {
+          throw new Error("Paste a valid compressed review payload.");
+        }
+        return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      }
+
+      async function gzipCompress(bytes) {
+        const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+      }
+
+      async function gzipDecompress(bytes) {
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+        return new Uint8Array(await new Response(stream).arrayBuffer());
+      }
+
+      async function encodePayloadCompressed(data) {
+        if (!isCompressionSupported()) {
+          throw new Error("Compressed export is not supported in this browser.");
+        }
+        const json = JSON.stringify(data);
+        const bytes = new TextEncoder().encode(json);
+        const compressed = await gzipCompress(bytes);
+        return `mr1.gz.${base64UrlEncode(compressed)}`;
       }
 
       function sha256Fallback(bytes) {
@@ -1303,12 +1350,32 @@
         };
       }
 
-      function decodePayload(payload, options = {}) {
+      async function decodePayload(payload, options = {}) {
+        const trimmed = payload.trim();
+        let json;
+        if (trimmed.startsWith("mr1.gz.")) {
+          if (!isCompressionSupported()) {
+            throw new Error("Compressed review payloads are not supported in this browser.");
+          }
+          try {
+            const compressedBytes = base64UrlDecode(trimmed.slice("mr1.gz.".length));
+            const bytes = await gzipDecompress(compressedBytes);
+            json = new TextDecoder().decode(bytes);
+          } catch (error) {
+            if (error.message.startsWith("Paste ") || error.message.includes("not supported")) throw error;
+            throw new Error("The compressed review payload could not be decompressed.");
+          }
+        } else {
+          try {
+            json = decodeBase64Unicode(trimmed);
+          } catch (error) {
+            throw error;
+          }
+        }
         let data;
         try {
-          data = JSON.parse(decodeBase64Unicode(payload));
+          data = JSON.parse(json);
         } catch (error) {
-          if (error.message.startsWith("Paste ") || error.message.includes("UTF-8")) throw error;
           throw new Error("The review payload must decode to valid JSON.");
         }
         return validatePayloadData(data, options);
@@ -1377,7 +1444,7 @@
         if (state.exportMode === "comments-only" && !state.markdownHash) {
           state.markdownHash = await computeMarkdownHash(state.markdown);
         }
-        state.exportPayload = encodePayload(buildExportData());
+        state.exportPayload = state.exportCompressed ? await encodePayloadCompressed(buildExportData()) : encodePayload(buildExportData());
       }
 
       async function openExportModal() {
@@ -1509,7 +1576,7 @@
             const markdownHash = await computeMarkdownHash(markdown);
             let comments = [];
             if (state.includeComments) {
-              const data = decodePayload(commentsPayload, { markdown, markdownHash });
+              const data = await decodePayload(commentsPayload, { markdown, markdownHash });
               if (data.mode !== "comments-only") throw new Error("Paste a comments-only review payload for Include comments.");
               comments = data.comments;
             }
@@ -1528,7 +1595,7 @@
         }
 
         try {
-          const data = decodePayload(payload);
+          const data = await decodePayload(payload);
           if (data.mode !== "full") throw new Error("Paste a full review payload in Full payload mode.");
           state.markdown = data.markdown;
           state.markdownHash = await computeMarkdownHash(data.markdown);
@@ -2448,6 +2515,11 @@
                 <span>Comments only</span>
               </label>
               <p class="hint">${state.exportMode === "comments-only" ? "Comments-only export excludes Markdown and includes a SHA-256 hash of this document." : "Full export includes Markdown and comments."}</p>
+              <label class="checkbox-row" for="compressed-export">
+                <input id="compressed-export" type="checkbox" ${state.exportCompressed ? "checked" : ""} ${isCompressionSupported() ? "" : "disabled"}>
+                <span>Compressed payload</span>
+              </label>
+              <p class="hint">${isCompressionSupported() ? (state.exportCompressed ? "Using newer mr1.gz. gzip-compressed format." : "Compression is optional; uncompressed base64 JSON remains backward compatible.") : "Compressed export is unavailable because this browser does not support Compression Streams."}</p>
               <label class="label-row" for="export-payload"><span>Export payload</span></label>
               <textarea class="export-textarea" id="export-payload" readonly spellcheck="false">${escapeHtml(state.exportPayload)}</textarea>
               <div class="copy-status" aria-live="polite">${escapeHtml(state.exportCopyStatus)}</div>
@@ -2534,6 +2606,13 @@
           await refreshExportPayload();
           renderWorkspace();
         });
+        document.getElementById("compressed-export")?.addEventListener("change", async (event) => {
+          state.exportCompressed = event.target.checked;
+          state.exportCopyStatus = "";
+          state.exportUrlCopyStatus = "";
+          await refreshExportPayload();
+          renderWorkspace();
+        });
         document.getElementById("select-export")?.addEventListener("click", () => document.getElementById("export-payload")?.select());
         document.getElementById("export-backdrop")?.addEventListener("click", (event) => {
           if (event.target.id === "export-backdrop") closeExportModal();
@@ -2557,6 +2636,12 @@
         validateStart,
         decodePayload,
         encodePayload,
+        encodePayloadCompressed,
+        base64UrlEncode,
+        base64UrlDecode,
+        gzipCompress,
+        gzipDecompress,
+        isCompressionSupported,
         buildExportData,
         computeMarkdownHash,
         validatePayloadData,
