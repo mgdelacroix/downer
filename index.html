@@ -446,8 +446,18 @@
         padding: 32px 24px;
       }
 
+      .editor-grid {
+        display: grid;
+        gap: 24px;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        margin: 0 auto;
+        max-width: 1320px;
+        padding: 32px 24px;
+      }
+
       .document-shell,
-      .comments-rail {
+      .comments-rail,
+      .editor-shell {
         background: var(--surface);
         border: 1px solid var(--outline);
         border-radius: var(--radius);
@@ -458,6 +468,35 @@
         justify-self: center;
         max-width: 760px;
         width: 100%;
+      }
+
+      .editor-shell {
+        min-width: 0;
+        padding: 18px;
+      }
+
+      .editor-shell h2 {
+        font-size: 15px;
+        margin: 0 0 12px;
+      }
+
+      .markdown-editor {
+        background: var(--surface-muted);
+        border: 1px solid var(--outline);
+        border-radius: var(--radius);
+        color: var(--text);
+        font-family: var(--font-mono);
+        line-height: 1.55;
+        min-height: calc(100vh - 150px);
+        padding: 16px;
+        resize: vertical;
+        tab-size: 2;
+        width: 100%;
+      }
+
+      .editor-preview-shell .document {
+        max-height: calc(100vh - 114px);
+        overflow: auto;
       }
 
       .document {
@@ -1012,9 +1051,18 @@
           padding: 0 8px;
         }
 
-        .workspace-grid {
+        .workspace-grid,
+        .editor-grid {
           display: block;
           padding: 18px 12px 88px;
+        }
+
+        .editor-preview-shell {
+          display: none;
+        }
+
+        .markdown-editor {
+          min-height: calc(100vh - 146px);
         }
 
         .document {
@@ -1080,6 +1128,7 @@
         confirmDeleteId: null,
         replyComposerId: null,
         replyDraftError: "",
+        editorMode: false,
         didFocusInitialName: false,
         tableScroll: {}
       };
@@ -1514,7 +1563,7 @@
       }
 
       async function refreshExportPayload() {
-        if (state.exportMode === "comments-only" && !state.markdownHash) {
+        if (state.exportMode === "comments-only") {
           state.markdownHash = await computeMarkdownHash(state.markdown);
         }
         state.exportPayload = state.exportCompressed ? await encodePayloadCompressed(buildExportData()) : encodePayload(buildExportData());
@@ -1813,6 +1862,7 @@
       }
 
       function shouldRenderCommentHighlight(comment) {
+        if (state.editorMode) return false;
         return !isResolved(comment) || comment.id === state.activeCommentId;
       }
 
@@ -2515,7 +2565,7 @@
       }
 
       function handleDocumentSelectionChange() {
-        if (state.route !== "workspace" || state.exportModalOpen) return;
+        if (state.route !== "workspace" || state.exportModalOpen || state.editorMode) return;
         const documentElement = document.getElementById("document");
         const selection = window.getSelection();
         if (!documentElement || !selection || selection.rangeCount === 0 || selection.isCollapsed) return;
@@ -2544,6 +2594,7 @@
 
       function bindCommentInteractions() {
         const documentElement = document.getElementById("document");
+        if (!documentElement || state.editorMode) return;
         documentElement.addEventListener("mouseup", () => scheduleCaptureSelection(0));
         documentElement.addEventListener("touchend", () => scheduleCaptureSelection(350));
         documentElement.addEventListener("pointerup", () => scheduleCaptureSelection(80));
@@ -2600,6 +2651,118 @@
         bindSelectionControls();
       }
 
+      function updateEditorPreview() {
+        const preview = document.getElementById("editor-preview");
+        if (!preview) return;
+        preview.replaceChildren(renderMarkdown(state.markdown, []));
+      }
+
+      function sourceOffsetForLine(markdown, lineIndex) {
+        let offset = 0;
+        for (let index = 0; index < lineIndex && offset < markdown.length; index += 1) {
+          const next = markdown.indexOf("\n", offset);
+          if (next === -1) return markdown.length;
+          offset = next + 1;
+        }
+        return offset;
+      }
+
+      function editorLineIndexFromScroll(editor) {
+        const styles = window.getComputedStyle(editor);
+        const parsedLineHeight = Number.parseFloat(styles.lineHeight);
+        const parsedFontSize = Number.parseFloat(styles.fontSize) || 16;
+        const lineHeight = Number.isFinite(parsedLineHeight) ? parsedLineHeight : parsedFontSize * 1.55;
+        return Math.max(0, Math.floor(editor.scrollTop / Math.max(lineHeight, 1)));
+      }
+
+      function findPreviewNodeForOffset(offset) {
+        const preview = document.getElementById("editor-preview");
+        if (!preview) return null;
+        const segments = Array.from(preview.querySelectorAll("[data-start][data-end]"));
+        return segments.find((node) => Number(node.dataset.start) <= offset && Number(node.dataset.end) >= offset)
+          || segments.find((node) => Number(node.dataset.start) >= offset)
+          || segments.at(-1)
+          || null;
+      }
+
+      function syncEditorPreviewToOffset(offset) {
+        const preview = document.getElementById("editor-preview");
+        const target = findPreviewNodeForOffset(offset);
+        if (!preview || !target || preview.offsetParent === null) return;
+        const previewRect = preview.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        const topPadding = preview.clientHeight * 0.15;
+        const nextTop = preview.scrollTop + targetRect.top - previewRect.top - topPadding;
+        preview.scrollTo({ top: Math.max(0, nextTop), behavior: "auto" });
+      }
+
+      function syncEditorPreviewFromCursor() {
+        const editor = document.getElementById("markdown-editor");
+        if (!editor) return;
+        syncEditorPreviewToOffset(editor.selectionStart || 0);
+      }
+
+      function syncEditorPreviewFromScroll() {
+        const editor = document.getElementById("markdown-editor");
+        if (!editor) return;
+        syncEditorPreviewToOffset(sourceOffsetForLine(state.markdown, editorLineIndexFromScroll(editor)));
+      }
+
+      function toggleEditorMode() {
+        state.editorMode = !state.editorMode;
+        state.selectionDraft = null;
+        state.commentsDrawerOpen = false;
+        state.confirmDeleteId = null;
+        state.replyComposerId = null;
+        state.replyDraftError = "";
+        window.getSelection()?.removeAllRanges();
+        renderWorkspace();
+        requestAnimationFrame(() => {
+          if (state.editorMode) {
+            document.getElementById("markdown-editor")?.focus();
+          } else {
+            document.getElementById("document")?.focus({ preventScroll: true });
+          }
+        });
+      }
+
+      function renderEditorWorkspace() {
+        return `
+          <main class="editor-grid" aria-labelledby="workspace-title">
+            <section class="editor-shell" aria-label="Markdown source editor">
+              <h2>Markdown source</h2>
+              <label class="label-row" for="markdown-editor"><span>Raw Markdown</span></label>
+              <textarea class="markdown-editor" id="markdown-editor" spellcheck="false">${escapeHtml(state.markdown)}</textarea>
+            </section>
+            <section class="editor-shell editor-preview-shell" aria-label="Live Markdown preview">
+              <h2>Live preview</h2>
+              <article class="document" id="editor-preview" aria-label="Rendered Markdown preview"></article>
+            </section>
+          </main>
+        `;
+      }
+
+      function renderReviewWorkspace(commentCount) {
+        return `
+          <main class="workspace-grid" aria-labelledby="workspace-title">
+            <section class="document-shell" aria-label="Markdown document panel">
+              <div class="document" id="document-wrap">
+                ${state.embeddedCommentsWarning ? `<p class="export-warning" role="status">${escapeHtml(state.embeddedCommentsWarning)}</p>` : ""}
+                <div id="selection-ui">${renderSelectionUi()}</div>
+                <article id="document" tabindex="-1" aria-label="Rendered Markdown Document"></article>
+              </div>
+            </section>
+            <aside class="comments-rail" id="comments-rail" aria-label="Review comments" data-open="${state.commentsDrawerOpen}">
+              <div class="rail-header">
+                <h2>Comments</h2>
+                <span class="badge">${commentCount}</span>
+              </div>
+              ${renderComments()}
+            </aside>
+          </main>
+        `;
+      }
+
       function renderExportModal() {
         if (!state.exportModalOpen) return "";
         const shareUrl = createShareUrl(state.exportPayload);
@@ -2653,7 +2816,7 @@
         applyTheme(state.theme);
         const commentCount = state.comments.length;
         app.innerHTML = `
-          <div class="workspace">
+          <div class="workspace" data-editor-mode="${state.editorMode}">
             <header class="topbar">
               <div class="topbar-title">
                 <h1 id="workspace-title">Review Workspace</h1>
@@ -2661,32 +2824,35 @@
               </div>
               <div class="toolbar-actions" aria-label="Workspace actions">
                 <button class="secondary" id="theme-toggle" type="button" aria-label="Switch to ${state.theme === "dark" ? "light" : "dark"} theme" aria-pressed="${state.theme === "dark"}">${state.theme === "dark" ? "LIGHT" : "DARK"}</button>
-                <button class="secondary mobile-only" id="comments-toggle" type="button" aria-expanded="${state.commentsDrawerOpen}" aria-controls="comments-rail">COMMENTS</button>
+                <button class="secondary" id="editor-toggle" type="button" aria-pressed="${state.editorMode}">${state.editorMode ? "EXIT_EDITOR" : "EDIT_MARKDOWN"}</button>
+                ${state.editorMode ? "" : `<button class="secondary mobile-only" id="comments-toggle" type="button" aria-expanded="${state.commentsDrawerOpen}" aria-controls="comments-rail">COMMENTS</button>`}
                 <button class="secondary" id="export-button" type="button">EXPORT</button>
               </div>
             </header>
-            <main class="workspace-grid" aria-labelledby="workspace-title">
-              <section class="document-shell" aria-label="Markdown document panel">
-                <div class="document" id="document-wrap">
-                  ${state.embeddedCommentsWarning ? `<p class="export-warning" role="status">${escapeHtml(state.embeddedCommentsWarning)}</p>` : ""}
-                  <div id="selection-ui">${renderSelectionUi()}</div>
-                  <article id="document" tabindex="-1" aria-label="Rendered Markdown Document"></article>
-                </div>
-              </section>
-              <aside class="comments-rail" id="comments-rail" aria-label="Review comments" data-open="${state.commentsDrawerOpen}">
-                <div class="rail-header">
-                  <h2>Comments</h2>
-                  <span class="badge">${commentCount}</span>
-                </div>
-                ${renderComments()}
-              </aside>
-            </main>
+            ${state.editorMode ? renderEditorWorkspace() : renderReviewWorkspace(commentCount)}
             ${renderExportModal()}
           </div>
         `;
 
-        document.getElementById("document").append(renderMarkdown(state.markdown, state.comments));
+        if (state.editorMode) {
+          updateEditorPreview();
+          const editor = document.getElementById("markdown-editor");
+          editor?.addEventListener("input", (event) => {
+            state.markdown = event.target.value;
+            state.markdownHash = null;
+            state.embeddedDownloadStatus = "";
+            updateEditorPreview();
+            syncEditorPreviewFromCursor();
+          });
+          editor?.addEventListener("scroll", syncEditorPreviewFromScroll);
+          editor?.addEventListener("click", syncEditorPreviewFromCursor);
+          editor?.addEventListener("keyup", syncEditorPreviewFromCursor);
+          editor?.addEventListener("select", syncEditorPreviewFromCursor);
+        } else {
+          document.getElementById("document").append(renderMarkdown(state.markdown, state.comments));
+        }
         document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+        document.getElementById("editor-toggle").addEventListener("click", toggleEditorMode);
         document.querySelectorAll(".table-scroll-toggle").forEach((button) => {
           button.addEventListener("click", () => {
             const tableId = button.dataset.tableId;
