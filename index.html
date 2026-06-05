@@ -814,6 +814,24 @@
         border-left-style: dashed;
       }
 
+      .comment-card[data-range-status="detached"] {
+        background: color-mix(in srgb, var(--error-soft) 35%, var(--surface-muted));
+        border-color: color-mix(in srgb, var(--error) 55%, var(--outline));
+        box-shadow: none;
+      }
+
+      .comment-card[data-range-status="detached"][data-active="true"] {
+        box-shadow: inset 3px 0 0 color-mix(in srgb, var(--error) 70%, var(--accent));
+      }
+
+      .detached-label {
+        color: var(--error);
+        font-family: var(--font-mono);
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
       .resolved-label {
         color: var(--muted);
         font-family: var(--font-mono);
@@ -1318,6 +1336,19 @@
         return { status: "resolved", resolvedAt, resolvedBy };
       }
 
+      function normalizeRangeStatus(comment, markdown, index) {
+        const allowed = ["attached", "stale", "detached"];
+        const rangeStatus = comment.rangeStatus === undefined ? "attached" : comment.rangeStatus;
+        if (!allowed.includes(rangeStatus)) {
+          throw new Error(`Comment ${index + 1} has an invalid range status.`);
+        }
+        if (typeof comment.originalHighlightedText !== "undefined" && typeof comment.originalHighlightedText !== "string") {
+          throw new Error(`Comment ${index + 1} has invalid original highlighted text.`);
+        }
+        if (rangeStatus === "detached") return "detached";
+        return markdown.slice(comment.start, comment.end) === comment.highlightedText ? "attached" : "stale";
+      }
+
       function validateImportedComment(comment, markdown, index) {
         if (!comment || typeof comment !== "object" || Array.isArray(comment)) {
           throw new Error(`Comment ${index + 1} must be a JSON object.`);
@@ -1340,11 +1371,14 @@
           throw new Error(`Comment ${index + 1} replies must be an array.`);
         }
         const resolution = normalizeResolution(comment, index);
+        const rangeStatus = normalizeRangeStatus(comment, markdown, index);
         return {
           id: comment.id,
           start: comment.start,
           end: comment.end,
           highlightedText: comment.highlightedText,
+          originalHighlightedText: comment.originalHighlightedText || comment.highlightedText,
+          rangeStatus,
           timestamp: comment.timestamp,
           author: comment.author,
           body: comment.body,
@@ -1525,24 +1559,29 @@
       }
 
       function serializeComments() {
-        return state.comments.map((comment) => ({
-          id: comment.id,
-          start: comment.start,
-          end: comment.end,
-          highlightedText: comment.highlightedText,
-          timestamp: comment.timestamp,
-          author: comment.author,
-          body: comment.body,
-          replies: (comment.replies || []).map((reply) => ({
-            id: reply.id,
-            timestamp: reply.timestamp,
-            author: reply.author,
-            body: reply.body
-          })),
-          status: comment.status || "open",
-          resolvedAt: comment.status === "resolved" ? comment.resolvedAt : null,
-          resolvedBy: comment.status === "resolved" ? comment.resolvedBy : null
-        }));
+        return state.comments.map((comment) => {
+          const data = {
+            id: comment.id,
+            start: comment.start,
+            end: comment.end,
+            highlightedText: comment.highlightedText,
+            timestamp: comment.timestamp,
+            author: comment.author,
+            body: comment.body,
+            replies: (comment.replies || []).map((reply) => ({
+              id: reply.id,
+              timestamp: reply.timestamp,
+              author: reply.author,
+              body: reply.body
+            })),
+            status: comment.status || "open",
+            resolvedAt: comment.status === "resolved" ? comment.resolvedAt : null,
+            resolvedBy: comment.status === "resolved" ? comment.resolvedBy : null
+          };
+          if (comment.rangeStatus && comment.rangeStatus !== "attached") data.rangeStatus = comment.rangeStatus;
+          if (comment.originalHighlightedText && comment.originalHighlightedText !== comment.highlightedText) data.originalHighlightedText = comment.originalHighlightedText;
+          return data;
+        });
       }
 
       function buildExportData() {
@@ -1861,8 +1900,12 @@
         return (comment.status || "open") === "resolved";
       }
 
+      function isDetached(comment) {
+        return comment.rangeStatus === "detached";
+      }
+
       function shouldRenderCommentHighlight(comment) {
-        if (state.editorMode) return false;
+        if (state.editorMode || isDetached(comment)) return false;
         return !isResolved(comment) || comment.id === state.activeCommentId;
       }
 
@@ -2287,7 +2330,8 @@
       }
 
       function isCommentStale(comment) {
-        return state.markdown.slice(comment.start, comment.end) !== comment.highlightedText;
+        if (isDetached(comment)) return false;
+        return comment.rangeStatus === "stale" || state.markdown.slice(comment.start, comment.end) !== comment.highlightedText;
       }
 
       function renderComments() {
@@ -2299,20 +2343,23 @@
           const stale = isCommentStale(comment);
           const isActive = comment.id === state.activeCommentId;
           const resolved = isResolved(comment);
+          const detached = isDetached(comment);
           const isExpandedResolved = resolved && isActive;
-          const showDetails = !resolved || isExpandedResolved;
+          const showDetails = (!resolved && !detached) || isActive;
           const isConfirmingDelete = state.confirmDeleteId === comment.id;
           const isReplying = state.replyComposerId === comment.id && !resolved;
           const replies = comment.replies || [];
           const resolvedSummary = resolved ? `<p class="resolved-meta">Resolved by ${escapeHtml(comment.resolvedBy || "Unknown reviewer")} · ${escapeHtml(formatTimestamp(comment.resolvedAt))}</p>` : "";
+          const previewText = detached ? "Referenced text was removed" : trimPreview(comment.highlightedText);
           return `
           <div class="comment-thread" data-thread-id="${escapeHtml(comment.id)}">
-            <div class="comment-card" data-active="${isActive}" data-status="${resolved ? "resolved" : "open"}">
+            <div class="comment-card" data-active="${isActive}" data-status="${resolved ? "resolved" : "open"}" data-range-status="${detached ? "detached" : (comment.rangeStatus || "attached")}">
               <button class="comment-main" type="button" data-comment-id="${escapeHtml(comment.id)}" data-active="${isActive}" ${isActive ? 'aria-current="true"' : ""} aria-expanded="${showDetails}">
+                ${detached ? '<div class="detached-label">Detached thread</div>' : ""}
                 ${resolved ? '<div class="resolved-label">Resolved thread</div>' : ""}
                 ${resolvedSummary}
                 ${showDetails ? `<div class="comment-meta">${escapeHtml(comment.author)} · ${escapeHtml(formatTimestamp(comment.timestamp))}</div>` : ""}
-                <blockquote class="comment-preview">${escapeHtml(trimPreview(comment.highlightedText))}</blockquote>
+                <blockquote class="comment-preview">${escapeHtml(previewText)}</blockquote>
                 ${showDetails ? `<p class="comment-body">${escapeHtml(comment.body)}</p>` : ""}
                 ${stale && showDetails ? '<div class="stale-warning">Stored range may be stale</div>' : ""}
               </button>
@@ -2447,11 +2494,14 @@
       }
 
       function createComment(range, body) {
+        const highlightedText = state.markdown.slice(range.start, range.end);
         return {
           id: `comment_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`,
           start: range.start,
           end: range.end,
-          highlightedText: state.markdown.slice(range.start, range.end),
+          highlightedText,
+          originalHighlightedText: highlightedText,
+          rangeStatus: "attached",
           timestamp: new Date().toISOString(),
           author: state.author,
           body: body.trim(),
@@ -2583,11 +2633,13 @@
         if (window.matchMedia && window.matchMedia("(max-width: 760px)").matches) {
           state.commentsDrawerOpen = true;
         }
+        const comment = state.comments.find((item) => item.id === id);
+        const detached = comment && isDetached(comment);
         renderWorkspace();
         requestAnimationFrame(() => {
-          const selector = scrollTarget === "card" ? `[data-comment-id="${CSS.escape(id)}"]` : `[data-highlight-ids~="${CSS.escape(id)}"]`;
+          const selector = detached || scrollTarget === "card" ? `[data-comment-id="${CSS.escape(id)}"]` : `[data-highlight-ids~="${CSS.escape(id)}"]`;
           const target = document.querySelector(selector);
-          target?.scrollIntoView({ block: "center", behavior: "smooth" });
+          if (!detached) target?.scrollIntoView({ block: "center", behavior: "smooth" });
           target?.focus?.({ preventScroll: true });
         });
       }
@@ -2649,6 +2701,89 @@
           button.addEventListener("click", () => deleteComment(button.dataset.confirmDeleteId));
         });
         bindSelectionControls();
+      }
+
+      function updateCommentRangeText(comment) {
+        comment.start = Math.max(0, Math.min(comment.start, state.markdown.length));
+        comment.end = Math.max(comment.start, Math.min(comment.end, state.markdown.length));
+        comment.highlightedText = state.markdown.slice(comment.start, comment.end);
+        comment.rangeStatus = comment.highlightedText ? "attached" : "detached";
+      }
+
+      function describeTextEdit(before, after) {
+        let prefix = 0;
+        while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix += 1;
+        let suffix = 0;
+        while (
+          suffix < before.length - prefix &&
+          suffix < after.length - prefix &&
+          before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+        ) suffix += 1;
+        return {
+          oldStart: prefix,
+          oldEnd: before.length - suffix,
+          newStart: prefix,
+          newEnd: after.length - suffix,
+          removedText: before.slice(prefix, before.length - suffix),
+          insertedText: after.slice(prefix, after.length - suffix)
+        };
+      }
+
+      function detachComment(comment) {
+        comment.rangeStatus = "detached";
+        comment.originalHighlightedText ||= comment.highlightedText;
+      }
+
+      function applyTextEditToComment(comment, edit, newMarkdownLength) {
+        if (isDetached(comment) || !Number.isFinite(comment.start) || !Number.isFinite(comment.end)) return;
+        comment.originalHighlightedText ||= comment.highlightedText;
+        const delta = edit.insertedText.length - edit.removedText.length;
+        const oldStart = comment.start;
+        const oldEnd = comment.end;
+
+        if (edit.oldEnd <= oldStart) {
+          comment.start = Math.max(0, Math.min(oldStart + delta, newMarkdownLength));
+          comment.end = Math.max(comment.start, Math.min(oldEnd + delta, newMarkdownLength));
+          return;
+        }
+        if (edit.oldStart >= oldEnd) return;
+
+        if (edit.removedText.length === 0) {
+          if (edit.oldStart <= oldStart) {
+            comment.start = Math.max(0, Math.min(oldStart + delta, newMarkdownLength));
+            comment.end = Math.max(comment.start, Math.min(oldEnd + delta, newMarkdownLength));
+          } else {
+            comment.end = Math.max(comment.start, Math.min(oldEnd + delta, newMarkdownLength));
+          }
+          return;
+        }
+
+        const leftLength = Math.max(0, Math.min(edit.oldStart, oldEnd) - oldStart);
+        const rightOldStart = Math.max(edit.oldEnd, oldStart);
+        const rightLength = Math.max(0, oldEnd - rightOldStart);
+        if (leftLength === 0 && rightLength === 0) {
+          detachComment(comment);
+          return;
+        }
+        if (leftLength >= rightLength) {
+          comment.start = Math.max(0, Math.min(oldStart, newMarkdownLength));
+          comment.end = Math.max(comment.start, Math.min(oldStart + leftLength, newMarkdownLength));
+        } else {
+          comment.start = Math.max(0, Math.min(rightOldStart + delta, newMarkdownLength));
+          comment.end = Math.max(comment.start, Math.min(rightOldStart + delta + rightLength, newMarkdownLength));
+        }
+      }
+
+      function applyTextEditToComments(before, after) {
+        const edit = describeTextEdit(before, after);
+        state.comments.forEach((comment) => applyTextEditToComment(comment, edit, after.length));
+        state.markdown = after;
+        state.comments.forEach((comment) => {
+          if (!isDetached(comment)) updateCommentRangeText(comment);
+        });
+        if (state.activeCommentId && isDetached(state.comments.find((comment) => comment.id === state.activeCommentId))) {
+          state.commentsDrawerOpen = true;
+        }
       }
 
       function updateEditorPreview() {
@@ -2838,7 +2973,7 @@
           updateEditorPreview();
           const editor = document.getElementById("markdown-editor");
           editor?.addEventListener("input", (event) => {
-            state.markdown = event.target.value;
+            applyTextEditToComments(state.markdown, event.target.value);
             state.markdownHash = null;
             state.embeddedDownloadStatus = "";
             updateEditorPreview();
@@ -2937,6 +3072,9 @@
         resolveComment,
         reopenComment,
         isCommentStale,
+        isDetached,
+        describeTextEdit,
+        applyTextEditToComments,
         canShareByUrl,
         createShareUrl,
         forceBothSourcesForValidation(author, fileName, payload) {
