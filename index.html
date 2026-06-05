@@ -1075,6 +1075,8 @@
         pendingCommentsPayload: "",
         exportCopyStatus: "",
         exportUrlCopyStatus: "",
+        embeddedCommentsWarning: "",
+        embeddedDownloadStatus: "",
         confirmDeleteId: null,
         replyComposerId: null,
         replyDraftError: "",
@@ -1312,11 +1314,29 @@
           throw new Error("Only review payload version 1 is supported.");
         }
         const mode = data.mode === undefined ? "full" : data.mode;
-        if (mode !== "full" && mode !== "comments-only") {
+        const allowedModes = options.allowEmbedded ? ["full", "comments-only", "embedded-comments"] : ["full", "comments-only"];
+        if (!allowedModes.includes(mode)) {
           throw new Error("The review payload mode is not supported.");
         }
         if (!Array.isArray(data.comments)) {
           throw new Error("The review payload comments must be an array.");
+        }
+        if (mode === "embedded-comments") {
+          if (Object.prototype.hasOwnProperty.call(data, "markdown")) {
+            throw new Error("Embedded comments metadata must not include Markdown content.");
+          }
+          if (typeof options.markdown !== "string") {
+            throw new Error("Embedded comments require Markdown content.");
+          }
+          if (Object.prototype.hasOwnProperty.call(data, "markdownHash")) {
+            throw new Error("Embedded comments metadata must not include a Markdown hash.");
+          }
+          return {
+            version: 1,
+            mode: "embedded-comments",
+            markdown: options.markdown,
+            comments: data.comments.map((comment, index) => validateImportedComment(comment, options.markdown, index))
+          };
         }
         if (mode === "full") {
           if (typeof data.markdown !== "string") {
@@ -1348,6 +1368,59 @@
           markdownHash: data.markdownHash,
           comments: data.comments.map((comment, index) => validateImportedComment(comment, options.markdown, index))
         };
+      }
+
+      const EMBEDDED_COMMENTS_START = "<!-- markdown-reviewer:comments";
+      const EMBEDDED_COMMENTS_END = "markdown-reviewer:comments -->";
+      const EMBEDDED_COMMENTS_PATTERN = /<!-- markdown-reviewer:comments\s*\n?([\s\S]*?)\n?markdown-reviewer:comments -->/g;
+
+      function stripEmbeddedCommentBlocks(markdown) {
+        return markdown.replace(EMBEDDED_COMMENTS_PATTERN, "").replace(/\s+$/g, "");
+      }
+
+      async function parseMarkdownWithEmbeddedComments(markdown) {
+        const matches = Array.from(markdown.matchAll(EMBEDDED_COMMENTS_PATTERN));
+        const cleanMarkdown = stripEmbeddedCommentBlocks(markdown);
+        const markdownHash = await computeMarkdownHash(cleanMarkdown);
+        if (matches.length === 0) {
+          return { markdown, markdownHash: await computeMarkdownHash(markdown), comments: [], warning: "" };
+        }
+        if (matches.length > 1) {
+          return { markdown: cleanMarkdown, markdownHash, comments: [], warning: "Multiple embedded comments blocks were found; comments were not applied." };
+        }
+        try {
+          const data = JSON.parse(matches[0][1].trim());
+          const validated = validatePayloadData(data, { allowEmbedded: true, markdown: cleanMarkdown, markdownHash });
+          if (validated.mode !== "embedded-comments") throw new Error("Embedded metadata must use embedded-comments mode.");
+          return { markdown: cleanMarkdown, markdownHash, comments: validated.comments, warning: "Embedded comments restored from Markdown file." };
+        } catch (error) {
+          return { markdown: cleanMarkdown, markdownHash, comments: [], warning: `Embedded comments could not be applied: ${error.message}` };
+        }
+      }
+
+      function buildEmbeddedMarkdownText() {
+        const data = {
+          version: 1,
+          mode: "embedded-comments",
+          comments: serializeComments()
+        };
+        const base = stripEmbeddedCommentBlocks(state.markdown).replace(/\s*$/g, "");
+        return `${base}\n\n${EMBEDDED_COMMENTS_START}\n${JSON.stringify(data)}\n${EMBEDDED_COMMENTS_END}\n`;
+      }
+
+      function downloadEmbeddedMarkdown() {
+        const markdown = buildEmbeddedMarkdownText();
+        const blob = new Blob([markdown], { type: "text/markdown" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "review-with-comments.md";
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+        state.embeddedDownloadStatus = "Markdown file with embedded comments downloaded.";
+        renderWorkspace();
       }
 
       async function decodePayload(payload, options = {}) {
@@ -1572,13 +1645,17 @@
 
         if (file) {
           try {
-            const markdown = await file.text();
-            const markdownHash = await computeMarkdownHash(markdown);
-            let comments = [];
+            const rawMarkdown = await file.text();
+            const embedded = await parseMarkdownWithEmbeddedComments(rawMarkdown);
+            let markdown = embedded.markdown;
+            let markdownHash = embedded.markdownHash;
+            let comments = embedded.comments;
+            state.embeddedCommentsWarning = embedded.warning;
             if (state.includeComments) {
               const data = await decodePayload(commentsPayload, { markdown, markdownHash });
               if (data.mode !== "comments-only") throw new Error("Paste a comments-only review payload for Include comments.");
               comments = data.comments;
+              state.embeddedCommentsWarning = embedded.warning && !embedded.warning.includes("restored") ? embedded.warning : "";
             }
             state.markdown = markdown;
             state.markdownHash = markdownHash;
@@ -1600,6 +1677,7 @@
           state.markdown = data.markdown;
           state.markdownHash = await computeMarkdownHash(data.markdown);
           state.comments = data.comments;
+          state.embeddedCommentsWarning = "";
           state.confirmDeleteId = null;
           state.tableScroll = {};
           state.activeCommentId = data.comments[0]?.id || null;
@@ -2536,8 +2614,10 @@
               <div class="composer-actions">
                 <button class="secondary" id="select-export" type="button">SELECT_ALL</button>
                 ${shareUrl ? `<button class="secondary" id="copy-url" type="button">COPY_URL</button>` : ""}
+                <button class="secondary" id="download-embedded" type="button">DOWNLOAD_EMBEDDED_MD</button>
                 <button class="primary" id="copy-export" type="button">COPY_PAYLOAD</button>
               </div>
+              <div class="copy-status" aria-live="polite">${escapeHtml(state.embeddedDownloadStatus)}</div>
             </section>
           </div>
         `;
@@ -2562,6 +2642,7 @@
             <main class="workspace-grid" aria-labelledby="workspace-title">
               <section class="document-shell" aria-label="Markdown document panel">
                 <div class="document" id="document-wrap">
+                  ${state.embeddedCommentsWarning ? `<p class="export-warning" role="status">${escapeHtml(state.embeddedCommentsWarning)}</p>` : ""}
                   ${renderSelectionUi()}
                   <article id="document" tabindex="-1" aria-label="Rendered Markdown Document"></article>
                 </div>
@@ -2599,6 +2680,7 @@
         document.getElementById("close-export")?.addEventListener("click", closeExportModal);
         document.getElementById("copy-export")?.addEventListener("click", copyExportPayload);
         document.getElementById("copy-url")?.addEventListener("click", copyShareUrl);
+        document.getElementById("download-embedded")?.addEventListener("click", downloadEmbeddedMarkdown);
         document.getElementById("comments-only-export")?.addEventListener("change", async (event) => {
           state.exportMode = event.target.checked ? "comments-only" : "full";
           state.exportCopyStatus = "";
@@ -2645,6 +2727,9 @@
         buildExportData,
         computeMarkdownHash,
         validatePayloadData,
+        parseMarkdownWithEmbeddedComments,
+        stripEmbeddedCommentBlocks,
+        buildEmbeddedMarkdownText,
         parseMarkdown,
         renderMarkdown,
         applyTheme,
