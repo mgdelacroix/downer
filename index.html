@@ -1392,7 +1392,7 @@
           const data = JSON.parse(matches[0][1].trim());
           const validated = validatePayloadData(data, { allowEmbedded: true, markdown: cleanMarkdown, markdownHash });
           if (validated.mode !== "embedded-comments") throw new Error("Embedded metadata must use embedded-comments mode.");
-          return { markdown: cleanMarkdown, markdownHash, comments: validated.comments, warning: "Embedded comments restored from Markdown file." };
+          return { markdown: cleanMarkdown, markdownHash, comments: validated.comments, warning: "" };
         } catch (error) {
           return { markdown: cleanMarkdown, markdownHash, comments: [], warning: `Embedded comments could not be applied: ${error.message}` };
         }
@@ -1655,7 +1655,7 @@
               const data = await decodePayload(commentsPayload, { markdown, markdownHash });
               if (data.mode !== "comments-only") throw new Error("Paste a comments-only review payload for Include comments.");
               comments = data.comments;
-              state.embeddedCommentsWarning = embedded.warning && !embedded.warning.includes("restored") ? embedded.warning : "";
+              state.embeddedCommentsWarning = embedded.warning;
             }
             state.markdown = markdown;
             state.markdownHash = markdownHash;
@@ -2451,10 +2451,76 @@
           x: rect.left + rect.width / 2,
           y: rect.top
         };
-        const scrollX = window.scrollX;
-        const scrollY = window.scrollY;
-        renderWorkspace();
-        window.scrollTo(scrollX, scrollY);
+        updateSelectionUi();
+      }
+
+      let selectionCaptureTimer = null;
+
+      function scheduleCaptureSelection(delay = 80) {
+        window.clearTimeout(selectionCaptureTimer);
+        selectionCaptureTimer = window.setTimeout(captureSelection, delay);
+      }
+
+      function updateSelectionUi() {
+        const container = document.getElementById("selection-ui");
+        if (!container) return;
+        container.innerHTML = renderSelectionUi();
+        bindSelectionControls();
+      }
+
+      function bindSelectionControls() {
+        document.getElementById("start-comment")?.addEventListener("click", () => {
+          state.selectionDraft.composing = true;
+          state.selectionDraft.error = "";
+          renderWorkspace();
+          requestAnimationFrame(() => {
+            window.scrollTo(0, 0);
+            document.getElementById("comment-body")?.focus();
+          });
+        });
+        document.getElementById("clear-selection")?.addEventListener("click", () => {
+          state.selectionDraft = null;
+          window.getSelection()?.removeAllRanges();
+          updateSelectionUi();
+        });
+        document.getElementById("cancel-comment")?.addEventListener("click", () => {
+          state.selectionDraft = null;
+          window.getSelection()?.removeAllRanges();
+          renderWorkspace();
+          requestAnimationFrame(() => document.getElementById("document")?.focus({ preventScroll: true }));
+        });
+        function saveCurrentComment() {
+          const body = document.getElementById("comment-body")?.value || "";
+          if (!body.trim()) {
+            state.selectionDraft.error = "Enter a comment before saving.";
+            renderWorkspace();
+            requestAnimationFrame(() => document.getElementById("comment-body")?.focus());
+            return;
+          }
+          const comment = createComment(state.selectionDraft, body);
+          state.comments.push(comment);
+          state.activeCommentId = comment.id;
+          state.selectionDraft = null;
+          window.getSelection()?.removeAllRanges();
+          renderWorkspace();
+          requestAnimationFrame(() => document.querySelector(`[data-comment-id="${CSS.escape(comment.id)}"]`)?.focus());
+        }
+        document.getElementById("save-comment")?.addEventListener("click", saveCurrentComment);
+        document.getElementById("comment-body")?.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            saveCurrentComment();
+          }
+        });
+      }
+
+      function handleDocumentSelectionChange() {
+        if (state.route !== "workspace" || state.exportModalOpen) return;
+        const documentElement = document.getElementById("document");
+        const selection = window.getSelection();
+        if (!documentElement || !selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+        if (!documentElement.contains(selection.anchorNode) || !documentElement.contains(selection.focusNode)) return;
+        scheduleCaptureSelection(window.matchMedia && window.matchMedia("(pointer: coarse)").matches ? 350 : 80);
       }
 
       function activateComment(id, scrollTarget = "highlight") {
@@ -2478,8 +2544,10 @@
 
       function bindCommentInteractions() {
         const documentElement = document.getElementById("document");
-        documentElement.addEventListener("mouseup", () => setTimeout(captureSelection, 0));
-        documentElement.addEventListener("keyup", () => setTimeout(captureSelection, 0));
+        documentElement.addEventListener("mouseup", () => scheduleCaptureSelection(0));
+        documentElement.addEventListener("touchend", () => scheduleCaptureSelection(350));
+        documentElement.addEventListener("pointerup", () => scheduleCaptureSelection(80));
+        documentElement.addEventListener("keyup", () => scheduleCaptureSelection(0));
         documentElement.addEventListener("click", (event) => {
           const highlight = event.target.closest("[data-highlight-ids]");
           if (!highlight) return;
@@ -2529,49 +2597,7 @@
         document.querySelectorAll("[data-confirm-delete-id]").forEach((button) => {
           button.addEventListener("click", () => deleteComment(button.dataset.confirmDeleteId));
         });
-        document.getElementById("start-comment")?.addEventListener("click", () => {
-          state.selectionDraft.composing = true;
-          state.selectionDraft.error = "";
-          renderWorkspace();
-          requestAnimationFrame(() => {
-            window.scrollTo(0, 0);
-            document.getElementById("comment-body")?.focus();
-          });
-        });
-        document.getElementById("clear-selection")?.addEventListener("click", () => {
-          state.selectionDraft = null;
-          window.getSelection()?.removeAllRanges();
-          renderWorkspace();
-        });
-        document.getElementById("cancel-comment")?.addEventListener("click", () => {
-          state.selectionDraft = null;
-          window.getSelection()?.removeAllRanges();
-          renderWorkspace();
-          requestAnimationFrame(() => document.getElementById("document")?.focus({ preventScroll: true }));
-        });
-        function saveCurrentComment() {
-          const body = document.getElementById("comment-body")?.value || "";
-          if (!body.trim()) {
-            state.selectionDraft.error = "Enter a comment before saving.";
-            renderWorkspace();
-            requestAnimationFrame(() => document.getElementById("comment-body")?.focus());
-            return;
-          }
-          const comment = createComment(state.selectionDraft, body);
-          state.comments.push(comment);
-          state.activeCommentId = comment.id;
-          state.selectionDraft = null;
-          window.getSelection()?.removeAllRanges();
-          renderWorkspace();
-          requestAnimationFrame(() => document.querySelector(`[data-comment-id="${CSS.escape(comment.id)}"]`)?.focus());
-        }
-        document.getElementById("save-comment")?.addEventListener("click", saveCurrentComment);
-        document.getElementById("comment-body")?.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-            event.preventDefault();
-            saveCurrentComment();
-          }
-        });
+        bindSelectionControls();
       }
 
       function renderExportModal() {
@@ -2643,7 +2669,7 @@
               <section class="document-shell" aria-label="Markdown document panel">
                 <div class="document" id="document-wrap">
                   ${state.embeddedCommentsWarning ? `<p class="export-warning" role="status">${escapeHtml(state.embeddedCommentsWarning)}</p>` : ""}
-                  ${renderSelectionUi()}
+                  <div id="selection-ui">${renderSelectionUi()}</div>
                   <article id="document" tabindex="-1" aria-label="Rendered Markdown Document"></article>
                 </div>
               </section>
@@ -2700,6 +2726,8 @@
           if (event.target.id === "export-backdrop") closeExportModal();
         });
         document.removeEventListener("keydown", trapDialogFocus);
+        document.removeEventListener("selectionchange", handleDocumentSelectionChange);
+        document.addEventListener("selectionchange", handleDocumentSelectionChange);
         if (state.exportModalOpen) {
           document.addEventListener("keydown", trapDialogFocus);
         }
