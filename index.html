@@ -1162,6 +1162,30 @@
           .replaceAll("'", "&#39;");
       }
 
+      function bytesToBinary(bytes) {
+        let binary = "";
+        bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+        return binary;
+      }
+
+      function base64ToBytes(value, message) {
+        try {
+          return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+        } catch (error) {
+          throw new Error(message);
+        }
+      }
+
+      function getComment(id) {
+        return state.comments.find((comment) => comment.id === id);
+      }
+
+      function resetThreadUi() {
+        state.confirmDeleteId = null;
+        state.replyComposerId = null;
+        state.replyDraftError = "";
+      }
+
       function validateStart({ author, sourceMode, file, payload, includeComments, commentsPayload }) {
         const errors = [];
         if (!author.trim()) errors.push("Enter a display name.");
@@ -1178,11 +1202,7 @@
       }
 
       function encodePayload(data) {
-        const json = JSON.stringify(data);
-        const bytes = new TextEncoder().encode(json);
-        let binary = "";
-        bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-        return btoa(binary);
+        return btoa(bytesToBinary(new TextEncoder().encode(JSON.stringify(data))));
       }
 
       function isCompressionSupported() {
@@ -1190,9 +1210,7 @@
       }
 
       function base64UrlEncode(bytes) {
-        let binary = "";
-        bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-        return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+        return btoa(bytesToBinary(bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
       }
 
       function base64UrlDecode(value) {
@@ -1200,13 +1218,7 @@
           throw new Error("Paste a valid compressed review payload.");
         }
         const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - (value.length % 4)) % 4);
-        let binary;
-        try {
-          binary = atob(padded);
-        } catch (error) {
-          throw new Error("Paste a valid compressed review payload.");
-        }
-        return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+        return base64ToBytes(padded, "Paste a valid compressed review payload.");
       }
 
       async function gzipCompress(bytes) {
@@ -1283,22 +1295,14 @@
       async function computeMarkdownHash(markdown) {
         const bytes = new TextEncoder().encode(markdown);
         const digest = window.crypto?.subtle?.digest ? new Uint8Array(await window.crypto.subtle.digest("SHA-256", bytes)) : sha256Fallback(bytes);
-        let binary = "";
-        digest.forEach((byte) => { binary += String.fromCharCode(byte); });
-        return { algorithm: "SHA-256", value: btoa(binary) };
+        return { algorithm: "SHA-256", value: btoa(bytesToBinary(digest)) };
       }
 
       function decodeBase64Unicode(payload) {
-        let binary;
         try {
-          binary = atob(payload.trim());
+          return new TextDecoder().decode(base64ToBytes(payload.trim(), "Paste a valid base64 review payload."));
         } catch (error) {
-          throw new Error("Paste a valid base64 review payload.");
-        }
-        try {
-          const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-          return new TextDecoder().decode(bytes);
-        } catch (error) {
+          if (error.message.startsWith("Paste ")) throw error;
           throw new Error("The review payload must decode to valid UTF-8 text.");
         }
       }
@@ -1463,10 +1467,10 @@
 
       async function parseMarkdownWithEmbeddedComments(markdown) {
         const matches = Array.from(markdown.matchAll(EMBEDDED_COMMENTS_PATTERN));
-        const cleanMarkdown = stripEmbeddedCommentBlocks(markdown);
+        const cleanMarkdown = matches.length ? stripEmbeddedCommentBlocks(markdown) : markdown;
         const markdownHash = await computeMarkdownHash(cleanMarkdown);
         if (matches.length === 0) {
-          return { markdown, markdownHash: await computeMarkdownHash(markdown), comments: [], warning: "" };
+          return { markdown, markdownHash, comments: [], warning: "" };
         }
         if (matches.length > 1) {
           return { markdown: cleanMarkdown, markdownHash, comments: [], warning: "Multiple embedded comments blocks were found; comments were not applied." };
@@ -1585,20 +1589,10 @@
       }
 
       function buildExportData() {
-        if (state.exportMode === "comments-only") {
-          return {
-            version: 1,
-            mode: "comments-only",
-            markdownHash: state.markdownHash,
-            comments: serializeComments()
-          };
-        }
-        return {
-          version: 1,
-          mode: "full",
-          markdown: state.markdown,
-          comments: serializeComments()
-        };
+        const comments = serializeComments();
+        return state.exportMode === "comments-only"
+          ? { version: 1, mode: "comments-only", markdownHash: state.markdownHash, comments }
+          : { version: 1, mode: "full", markdown: state.markdown, comments };
       }
 
       async function refreshExportPayload() {
@@ -1714,6 +1708,18 @@
         renderOnboarding();
       }
 
+      function loadWorkspace({ markdown, comments, markdownHash, embeddedCommentsWarning = "" }) {
+        state.markdown = markdown;
+        state.markdownHash = markdownHash;
+        state.comments = comments;
+        state.embeddedCommentsWarning = embeddedCommentsWarning;
+        state.tableScroll = {};
+        resetThreadUi();
+        state.activeCommentId = comments[0]?.id || null;
+        state.route = "workspace";
+        renderApp();
+      }
+
       async function handleStart() {
         const authorInput = document.getElementById("author-input");
         const payloadInput = document.getElementById("payload-input");
@@ -1738,21 +1744,12 @@
             let markdown = embedded.markdown;
             let markdownHash = embedded.markdownHash;
             let comments = embedded.comments;
-            state.embeddedCommentsWarning = embedded.warning;
             if (state.includeComments) {
               const data = await decodePayload(commentsPayload, { markdown, markdownHash });
               if (data.mode !== "comments-only") throw new Error("Paste a comments-only review payload for Include comments.");
               comments = data.comments;
-              state.embeddedCommentsWarning = embedded.warning;
             }
-            state.markdown = markdown;
-            state.markdownHash = markdownHash;
-            state.comments = comments;
-            state.confirmDeleteId = null;
-            state.tableScroll = {};
-            state.activeCommentId = comments[0]?.id || null;
-            state.route = "workspace";
-            renderApp();
+            loadWorkspace({ markdown, comments, markdownHash, embeddedCommentsWarning: embedded.warning });
           } catch (error) {
             setErrors([error.message || "Unable to read the selected Markdown file."]);
           }
@@ -1762,15 +1759,11 @@
         try {
           const data = await decodePayload(payload);
           if (data.mode !== "full") throw new Error("Paste a full review payload in Full payload mode.");
-          state.markdown = data.markdown;
-          state.markdownHash = await computeMarkdownHash(data.markdown);
-          state.comments = data.comments;
-          state.embeddedCommentsWarning = "";
-          state.confirmDeleteId = null;
-          state.tableScroll = {};
-          state.activeCommentId = data.comments[0]?.id || null;
-          state.route = "workspace";
-          renderApp();
+          loadWorkspace({
+            markdown: data.markdown,
+            comments: data.comments,
+            markdownHash: await computeMarkdownHash(data.markdown)
+          });
         } catch (error) {
           setErrors([error.message]);
         }
@@ -1942,7 +1935,7 @@
             node.className = "review-highlight";
             node.dataset.highlightIds = ids.join(" ");
             node.dataset.active = ids.includes(state.activeCommentId) ? "true" : "false";
-            node.dataset.resolved = ids.some((id) => isResolved(state.comments.find((comment) => comment.id === id))) ? "true" : "false";
+            node.dataset.resolved = ids.some((id) => isResolved(getComment(id))) ? "true" : "false";
             node.tabIndex = 0;
           }
           node.textContent = text.slice(localStart, localEnd);
@@ -2205,7 +2198,7 @@
         });
       }
 
-      function renderMarkdown(markdown, comments = []) {
+      function renderMarkdown(markdown) {
         const fragment = document.createDocumentFragment();
         parseMarkdown(markdown).forEach((block) => {
           if (block.type === "heading") {
@@ -2405,20 +2398,18 @@
 
       function requestDeleteComment(id) {
         state.activeCommentId = id;
+        resetThreadUi();
         state.confirmDeleteId = id;
-        state.replyComposerId = null;
-        state.replyDraftError = "";
         renderWorkspace();
         requestAnimationFrame(() => document.querySelector(`[data-confirm-delete-id="${CSS.escape(id)}"]`)?.focus());
       }
 
       function requestReply(commentId) {
-        const comment = state.comments.find((item) => item.id === commentId);
+        const comment = getComment(commentId);
         if (!comment || isResolved(comment)) return;
         state.activeCommentId = commentId;
-        state.confirmDeleteId = null;
+        resetThreadUi();
         state.replyComposerId = commentId;
-        state.replyDraftError = "";
         renderWorkspace();
         requestAnimationFrame(() => document.getElementById("reply-body")?.focus());
       }
@@ -2431,7 +2422,7 @@
       }
 
       function addReply(commentId, body) {
-        const comment = state.comments.find((item) => item.id === commentId);
+        const comment = getComment(commentId);
         if (!comment || isResolved(comment)) return;
         if (!body.trim()) {
           state.replyComposerId = commentId;
@@ -2454,7 +2445,7 @@
       }
 
       function resolveComment(id) {
-        const comment = state.comments.find((item) => item.id === id);
+        const comment = getComment(id);
         if (!comment || isResolved(comment)) return;
         comment.status = "resolved";
         comment.resolvedAt = new Date().toISOString();
@@ -2467,7 +2458,7 @@
       }
 
       function reopenComment(id) {
-        const comment = state.comments.find((item) => item.id === id);
+        const comment = getComment(id);
         if (!comment || !isResolved(comment)) return;
         comment.status = "open";
         comment.resolvedAt = null;
@@ -2486,9 +2477,7 @@
       function deleteComment(id) {
         state.comments = state.comments.filter((comment) => comment.id !== id);
         if (state.activeCommentId === id) state.activeCommentId = null;
-        if (state.confirmDeleteId === id) state.confirmDeleteId = null;
-        if (state.replyComposerId === id) state.replyComposerId = null;
-        state.replyDraftError = "";
+        if (state.confirmDeleteId === id || state.replyComposerId === id) resetThreadUi();
         renderWorkspace();
         requestAnimationFrame(() => document.getElementById("document")?.focus({ preventScroll: true }));
       }
@@ -2624,16 +2613,12 @@
       }
 
       function activateComment(id, scrollTarget = "highlight") {
-        if (state.activeCommentId !== id) {
-          state.confirmDeleteId = null;
-          state.replyComposerId = null;
-          state.replyDraftError = "";
-        }
+        if (state.activeCommentId !== id) resetThreadUi();
         state.activeCommentId = id;
         if (window.matchMedia && window.matchMedia("(max-width: 760px)").matches) {
           state.commentsDrawerOpen = true;
         }
-        const comment = state.comments.find((item) => item.id === id);
+        const comment = getComment(id);
         const detached = comment && isDetached(comment);
         renderWorkspace();
         requestAnimationFrame(() => {
@@ -2641,6 +2626,12 @@
           const target = document.querySelector(selector);
           if (!detached) target?.scrollIntoView({ block: "center", behavior: "smooth" });
           target?.focus?.({ preventScroll: true });
+        });
+      }
+
+      function onClickAll(selector, handler) {
+        document.querySelectorAll(selector).forEach((element) => {
+          element.addEventListener("click", () => handler(element));
         });
       }
 
@@ -2665,41 +2656,21 @@
           const id = highlight.dataset.highlightIds.split(" ")[0];
           activateComment(id, "card");
         });
-        document.querySelectorAll("[data-comment-id]").forEach((card) => {
-          card.addEventListener("click", () => activateComment(card.dataset.commentId, "highlight"));
-        });
-        document.querySelectorAll("[data-reply-id]").forEach((button) => {
-          if (button.classList.contains("reply-comment")) {
-            button.addEventListener("click", () => requestReply(button.dataset.replyId));
-          }
-        });
-        document.querySelectorAll("[data-cancel-reply-id]").forEach((button) => {
-          button.addEventListener("click", () => cancelReply(button.dataset.cancelReplyId));
-        });
-        document.querySelectorAll("[data-save-reply-id]").forEach((button) => {
-          button.addEventListener("click", () => addReply(button.dataset.saveReplyId, document.getElementById("reply-body")?.value || ""));
-        });
+        onClickAll("[data-comment-id]", (card) => activateComment(card.dataset.commentId, "highlight"));
+        onClickAll(".reply-comment[data-reply-id]", (button) => requestReply(button.dataset.replyId));
+        onClickAll("[data-cancel-reply-id]", (button) => cancelReply(button.dataset.cancelReplyId));
+        onClickAll("[data-save-reply-id]", (button) => addReply(button.dataset.saveReplyId, document.getElementById("reply-body")?.value || ""));
         document.getElementById("reply-body")?.addEventListener("keydown", (event) => {
           if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
             event.preventDefault();
             addReply(state.replyComposerId, event.target.value);
           }
         });
-        document.querySelectorAll("[data-resolve-id]").forEach((button) => {
-          button.addEventListener("click", () => resolveComment(button.dataset.resolveId));
-        });
-        document.querySelectorAll("[data-reopen-id]").forEach((button) => {
-          button.addEventListener("click", () => reopenComment(button.dataset.reopenId));
-        });
-        document.querySelectorAll("[data-delete-id]").forEach((button) => {
-          button.addEventListener("click", () => requestDeleteComment(button.dataset.deleteId));
-        });
-        document.querySelectorAll("[data-cancel-delete-id]").forEach((button) => {
-          button.addEventListener("click", () => cancelDeleteComment(button.dataset.cancelDeleteId));
-        });
-        document.querySelectorAll("[data-confirm-delete-id]").forEach((button) => {
-          button.addEventListener("click", () => deleteComment(button.dataset.confirmDeleteId));
-        });
+        onClickAll("[data-resolve-id]", (button) => resolveComment(button.dataset.resolveId));
+        onClickAll("[data-reopen-id]", (button) => reopenComment(button.dataset.reopenId));
+        onClickAll("[data-delete-id]", (button) => requestDeleteComment(button.dataset.deleteId));
+        onClickAll("[data-cancel-delete-id]", (button) => cancelDeleteComment(button.dataset.cancelDeleteId));
+        onClickAll("[data-confirm-delete-id]", (button) => deleteComment(button.dataset.confirmDeleteId));
         bindSelectionControls();
       }
 
@@ -2781,7 +2752,7 @@
         state.comments.forEach((comment) => {
           if (!isDetached(comment)) updateCommentRangeText(comment);
         });
-        if (state.activeCommentId && isDetached(state.comments.find((comment) => comment.id === state.activeCommentId))) {
+        if (state.activeCommentId && isDetached(getComment(state.activeCommentId))) {
           state.commentsDrawerOpen = true;
         }
       }
@@ -2789,7 +2760,7 @@
       function updateEditorPreview() {
         const preview = document.getElementById("editor-preview");
         if (!preview) return;
-        preview.replaceChildren(renderMarkdown(state.markdown, []));
+        preview.replaceChildren(renderMarkdown(state.markdown));
       }
 
       function sourceOffsetForLine(markdown, lineIndex) {
@@ -2847,9 +2818,7 @@
         state.editorMode = !state.editorMode;
         state.selectionDraft = null;
         state.commentsDrawerOpen = false;
-        state.confirmDeleteId = null;
-        state.replyComposerId = null;
-        state.replyDraftError = "";
+        resetThreadUi();
         window.getSelection()?.removeAllRanges();
         renderWorkspace();
         requestAnimationFrame(() => {
@@ -2984,16 +2953,14 @@
           editor?.addEventListener("keyup", syncEditorPreviewFromCursor);
           editor?.addEventListener("select", syncEditorPreviewFromCursor);
         } else {
-          document.getElementById("document").append(renderMarkdown(state.markdown, state.comments));
+          document.getElementById("document").append(renderMarkdown(state.markdown));
         }
         document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
         document.getElementById("editor-toggle").addEventListener("click", toggleEditorMode);
-        document.querySelectorAll(".table-scroll-toggle").forEach((button) => {
-          button.addEventListener("click", () => {
-            const tableId = button.dataset.tableId;
-            state.tableScroll[tableId] = !state.tableScroll[tableId];
-            renderWorkspace();
-          });
+        onClickAll(".table-scroll-toggle", (button) => {
+          const tableId = button.dataset.tableId;
+          state.tableScroll[tableId] = !state.tableScroll[tableId];
+          renderWorkspace();
         });
         document.getElementById("export-button").addEventListener("click", openExportModal);
         bindCommentInteractions();
