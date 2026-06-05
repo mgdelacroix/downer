@@ -670,6 +670,7 @@
 
       .composer-actions {
         display: flex;
+        flex-wrap: wrap;
         gap: 8px;
         justify-content: flex-end;
         margin-top: 10px;
@@ -970,9 +971,16 @@
         gap: 16px;
         max-height: calc(100vh - 40px);
         max-width: 720px;
+        min-width: 0;
         overflow: auto;
         padding: 22px;
         width: min(720px, 100%);
+      }
+
+      .export-dialog > *,
+      .share-url-section {
+        max-width: 100%;
+        min-width: 0;
       }
 
       .dialog-header {
@@ -1104,6 +1112,22 @@
 
         .comments-rail[data-open="true"] {
           display: block;
+        }
+
+        .modal-backdrop {
+          padding: 12px;
+        }
+
+        .export-dialog {
+          max-height: calc(100vh - 24px);
+          padding: 16px;
+          width: 100%;
+        }
+
+        .export-dialog .primary,
+        .export-dialog .secondary {
+          flex: 1 1 auto;
+          min-width: min(150px, 100%);
         }
 
         .mobile-only {
@@ -2916,6 +2940,14 @@
         `;
       }
 
+      function handleOutsideMobileCommentsClick(event) {
+        if (!state.commentsDrawerOpen || state.editorMode || state.exportModalOpen) return;
+        if (!window.matchMedia || !window.matchMedia("(max-width: 760px)").matches) return;
+        if (event.target.closest("#comments-rail, #comments-toggle")) return;
+        state.commentsDrawerOpen = false;
+        renderWorkspace();
+      }
+
       function renderWorkspace() {
         applyTheme(state.theme);
         const commentCount = state.comments.length;
@@ -2995,7 +3027,9 @@
         });
         document.removeEventListener("keydown", trapDialogFocus);
         document.removeEventListener("selectionchange", handleDocumentSelectionChange);
+        document.removeEventListener("click", handleOutsideMobileCommentsClick);
         document.addEventListener("selectionchange", handleDocumentSelectionChange);
+        window.setTimeout(() => document.addEventListener("click", handleOutsideMobileCommentsClick), 0);
         if (state.exportModalOpen) {
           document.addEventListener("keydown", trapDialogFocus);
         }
